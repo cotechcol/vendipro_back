@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { AppService } from './app.service';
 import { Public } from './common/decorators/public.decorator';
+import { getAppTimezone } from './common/utils/timezone.util';
 
 @Controller()
 export class AppController {
@@ -9,7 +10,7 @@ export class AppController {
   @Public()
   @Get('health')
   health() {
-    return { ok: true, tz: process.env.TZ ?? 'America/Bogota' };
+    return { ok: true, tz: getAppTimezone() };
   }
 
   @Get()

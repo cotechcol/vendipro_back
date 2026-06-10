@@ -9,7 +9,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: TZ
+      - key: APP_TIMEZONE
         value: America/Bogota
       - key: PORT
         value: 3000

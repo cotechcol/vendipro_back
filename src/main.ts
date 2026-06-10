@@ -1,7 +1,8 @@
 import { config } from 'dotenv';
+import { applyProcessTimezone } from './common/utils/timezone.util';
 
-process.env.TZ = process.env.TZ ?? 'America/Bogota';
 config();
+applyProcessTimezone();
 
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
