@@ -63,3 +63,4 @@ El servidor inicia en `http://localhost:3000`.
 | Reportes | `GET /reports/dashboard`, `/sales`, `/inventory`, `/profitability` |
 | Config | `GET/PATCH /settings` |
 # vendipro_back
+# vendipro_back
