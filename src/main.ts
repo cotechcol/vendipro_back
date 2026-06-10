@@ -1,34 +1,47 @@
 import { config } from 'dotenv';
-import type { INestApplication } from '@nestjs/common';
-import type { Express, Request, Response } from 'express';
-import { createNestApp } from './app-bootstrap';
-import { runStoreMigration } from './database/store-migration';
 
 config();
 
-let cachedApp: INestApplication | null = null;
+import { ValidationPipe } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { runStoreMigration } from './database/store-migration';
 
-async function getApp(): Promise<INestApplication> {
-  if (!cachedApp) {
-    if (!process.env.VERCEL) {
-      await runStoreMigration();
-    }
-    cachedApp = await createNestApp();
+async function bootstrap() {
+  if (!process.env.VERCEL) {
+    await runStoreMigration();
   }
-  return cachedApp;
-}
 
-async function bootstrapLocal() {
-  const app = await getApp();
+  const app = await NestFactory.create(AppModule);
+
+  app.enableCors({
+    origin: (
+      _origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => callback(null, true),
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Store-Id',
+      'Accept',
+      'Origin',
+      'X-Requested-With',
+    ],
+    exposedHeaders: ['Authorization'],
+    maxAge: 86_400,
+  });
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
+
   await app.listen(process.env.PORT ?? 3000);
 }
 
-export default async function handler(req: Request, res: Response): Promise<void> {
-  const app = await getApp();
-  const server = app.getHttpAdapter().getInstance() as Express;
-  server(req, res);
-}
-
-if (!process.env.VERCEL) {
-  bootstrapLocal();
-}
+bootstrap();
