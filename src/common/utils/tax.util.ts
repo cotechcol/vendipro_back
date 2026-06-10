@@ -1,3 +1,5 @@
+import { todayColombia } from './date.util';
+
 export function calculateTaxFromIncludedPrice(
   totalWithTax: number,
   taxRate: number,
@@ -9,8 +11,7 @@ export function calculateTaxFromIncludedPrice(
 }
 
 export function generateTicketNumber(): string {
-  const now = new Date();
-  const date = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const date = todayColombia().replace(/-/g, '');
   const random = Math.floor(Math.random() * 10000)
     .toString()
     .padStart(4, '0');

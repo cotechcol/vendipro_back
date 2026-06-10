@@ -6,6 +6,11 @@ import { SaleItem } from '../sales/entities/sale-item.entity';
 import { Product } from '../products/entities/product.entity';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { reportStoreId } from '../common/utils/store-context.util';
+import {
+  dateRangeColombia,
+  todayRangeColombia,
+  toColombiaDateString,
+} from '../common/utils/date.util';
 
 @Injectable()
 export class ReportsService {
@@ -15,16 +20,8 @@ export class ReportsService {
     @InjectRepository(Product) private productRepo: Repository<Product>,
   ) {}
 
-  private todayRange() {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
-    return { start, end };
-  }
-
   async getDashboard(ctx: StoreContext) {
-    const { start, end } = this.todayRange();
+    const { start, end } = todayRangeColombia();
     const storeId = reportStoreId(ctx);
 
     const qb = this.saleRepo.createQueryBuilder('s')
@@ -66,8 +63,9 @@ export class ReportsService {
 
   async getSalesReport(from: string, to: string, ctx: StoreContext) {
     const storeId = reportStoreId(ctx);
+    const { start, end } = dateRangeColombia(from, to);
     const where: Record<string, unknown> = {
-      createdAt: Between(new Date(from), new Date(to + 'T23:59:59')),
+      createdAt: Between(start, end),
     };
     if (storeId) where.storeId = storeId;
 
@@ -112,8 +110,9 @@ export class ReportsService {
 
   async getProfitabilityReport(from: string, to: string, ctx: StoreContext) {
     const storeId = reportStoreId(ctx);
+    const { start, end } = dateRangeColombia(from, to);
     const where: Record<string, unknown> = {
-      createdAt: Between(new Date(from), new Date(to + 'T23:59:59')),
+      createdAt: Between(start, end),
     };
     if (storeId) where.storeId = storeId;
 
@@ -134,8 +133,7 @@ export class ReportsService {
 
   async getProductsReport(from: string, to: string, ctx: StoreContext) {
     const storeId = reportStoreId(ctx);
-    const start = new Date(from);
-    const end = new Date(to + 'T23:59:59');
+    const { start, end } = dateRangeColombia(from, to);
 
     const qb = this.saleItemRepo.createQueryBuilder('si')
       .innerJoin('si.sale', 's')
@@ -185,8 +183,9 @@ export class ReportsService {
 
   async getDailySales(from: string, to: string, ctx: StoreContext) {
     const storeId = reportStoreId(ctx);
+    const { start, end } = dateRangeColombia(from, to);
     const where: Record<string, unknown> = {
-      createdAt: Between(new Date(from), new Date(to + 'T23:59:59')),
+      createdAt: Between(start, end),
     };
     if (storeId) where.storeId = storeId;
 
@@ -194,7 +193,7 @@ export class ReportsService {
 
     const byDay = new Map<string, { date: string; revenue: number; profit: number; count: number }>();
     for (const sale of sales) {
-      const date = sale.createdAt.toISOString().slice(0, 10);
+      const date = toColombiaDateString(sale.createdAt);
       const entry = byDay.get(date) || { date, revenue: 0, profit: 0, count: 0 };
       entry.revenue += Number(sale.total);
       entry.profit += Number(sale.profit);

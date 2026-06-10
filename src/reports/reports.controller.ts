@@ -6,6 +6,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums';
 import { StoreCtx } from '../common/decorators/store-context.decorator';
 import type { StoreContext } from '../common/utils/store-context.util';
+import { todayColombia } from '../common/utils/date.util';
 
 @Controller('reports')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -25,7 +26,7 @@ export class ReportsController {
     @Query('to') to: string,
     @StoreCtx() ctx: StoreContext,
   ) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayColombia();
     return this.service.getSalesReport(from || today, to || today, ctx);
   }
 
@@ -42,7 +43,7 @@ export class ReportsController {
     @Query('to') to: string,
     @StoreCtx() ctx: StoreContext,
   ) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayColombia();
     return this.service.getProfitabilityReport(from || today, to || today, ctx);
   }
 
@@ -53,7 +54,7 @@ export class ReportsController {
     @Query('to') to: string,
     @StoreCtx() ctx: StoreContext,
   ) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayColombia();
     return this.service.getProductsReport(from || today, to || today, ctx);
   }
 
@@ -64,7 +65,7 @@ export class ReportsController {
     @Query('to') to: string,
     @StoreCtx() ctx: StoreContext,
   ) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayColombia();
     return this.service.getDailySales(from || today, to || today, ctx);
   }
 }

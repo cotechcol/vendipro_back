@@ -13,6 +13,7 @@ import { SettingsService } from '../settings/settings.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
+import { dateRangeColombia } from '../common/utils/date.util';
 
 @Injectable()
 export class SalesService {
@@ -31,7 +32,8 @@ export class SalesService {
     const { page = 1, limit = 10, from, to } = query;
     const where: Record<string, unknown> = { storeId };
     if (from && to) {
-      where.createdAt = Between(new Date(from), new Date(to + 'T23:59:59'));
+      const { start, end } = dateRangeColombia(from, to);
+      where.createdAt = Between(start, end);
     }
     const [data, total] = await this.saleRepo.findAndCount({
       where,

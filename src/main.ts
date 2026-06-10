@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
 
+process.env.TZ = process.env.TZ ?? 'America/Bogota';
 config();
 
 import { ValidationPipe } from '@nestjs/common';
@@ -12,7 +13,12 @@ async function bootstrap() {
     await runStoreMigration();
   }
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger:
+      process.env.NODE_ENV === 'production'
+        ? ['error', 'warn']
+        : ['log', 'error', 'warn'],
+  });
 
   app.enableCors({
     origin: (
