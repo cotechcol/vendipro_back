@@ -1,0 +1,23 @@
+export enum UserRole {
+  SUPER_ADMIN = 'super_admin',
+  ADMIN = 'admin',
+  CASHIER = 'cashier',
+}
+
+export enum CashSessionStatus {
+  OPEN = 'open',
+  CLOSED = 'closed',
+}
+
+export enum PaymentMethod {
+  CASH = 'cash',
+  CARD = 'card',
+  MIXED = 'mixed',
+}
+
+export enum InventoryMovementType {
+  SALE = 'sale',
+  PURCHASE = 'purchase',
+  ADJUSTMENT_IN = 'adjustment_in',
+  ADJUSTMENT_OUT = 'adjustment_out',
+}
