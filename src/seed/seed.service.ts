@@ -43,6 +43,7 @@ export class SeedService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    if (process.env.VERCEL) return;
     await this.seedSuperAdmin();
     await this.seedDemo();
   }
