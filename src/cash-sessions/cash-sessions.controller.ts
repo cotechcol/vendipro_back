@@ -30,10 +30,10 @@ export class CashSessionsController {
   @Post('open')
   open(
     @Body() dto: OpenCashSessionDto,
-    @CurrentUser('sub') userId: number,
+    @CurrentUser() user: JwtPayload,
     @StoreCtx() ctx: StoreContext,
   ) {
-    return this.service.open(dto, userId, ctx);
+    return this.service.open(dto, user.sub, user.role, ctx);
   }
 
   @Post(':id/close')

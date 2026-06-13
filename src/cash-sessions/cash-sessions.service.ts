@@ -30,6 +30,21 @@ export class CashSessionsService {
     return safe as T;
   }
 
+  private sanitizeSummary(
+    summary: {
+      totalSales: number;
+      totalRevenue: number;
+      totalProfit: number;
+      cashTotal: number;
+      cardTotal: number;
+    },
+    role: UserRole,
+  ) {
+    if (this.isAdmin(role)) return summary;
+    const { cashTotal, ...safe } = summary;
+    return safe;
+  }
+
   async getCurrent(userId: number, ctx: StoreContext, role: UserRole) {
     const storeId = this.scopeStore(ctx);
     const session = await this.repo.findOne({
@@ -38,10 +53,10 @@ export class CashSessionsService {
     });
     if (!session) return null;
     const summary = await this.getSessionSummary(session.id);
-    return { ...this.sanitizeSession(session, role), summary };
+    return { ...this.sanitizeSession(session, role), summary: this.sanitizeSummary(summary, role) };
   }
 
-  async open(dto: OpenCashSessionDto, userId: number, ctx: StoreContext) {
+  async open(dto: OpenCashSessionDto, userId: number, role: UserRole, ctx: StoreContext) {
     const storeId = this.scopeStore(ctx);
     const existing = await this.repo.findOne({
       where: { storeId, userId, status: CashSessionStatus.OPEN },
@@ -58,7 +73,7 @@ export class CashSessionsService {
       }),
     );
     const summary = await this.getSessionSummary(session.id);
-    return { ...session, summary };
+    return { ...session, summary: this.sanitizeSummary(summary, role) };
   }
 
   async close(id: number, dto: CloseCashSessionDto, userId: number, role: UserRole, ctx: StoreContext) {
