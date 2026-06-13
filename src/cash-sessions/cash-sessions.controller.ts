@@ -20,8 +20,11 @@ export class CashSessionsController {
   constructor(private service: CashSessionsService) {}
 
   @Get('current')
-  getCurrent(@CurrentUser('sub') userId: number, @StoreCtx() ctx: StoreContext) {
-    return this.service.getCurrent(userId, ctx);
+  getCurrent(
+    @CurrentUser() user: JwtPayload,
+    @StoreCtx() ctx: StoreContext,
+  ) {
+    return this.service.getCurrent(user.sub, ctx, user.role);
   }
 
   @Post('open')
@@ -37,18 +40,20 @@ export class CashSessionsController {
   close(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CloseCashSessionDto,
-    @CurrentUser('sub') userId: number,
+    @CurrentUser() user: JwtPayload,
     @StoreCtx() ctx: StoreContext,
   ) {
-    return this.service.close(id, dto, userId, ctx);
+    return this.service.close(id, dto, user.sub, user.role, ctx);
   }
 
   @Get()
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   findAll(@Query() query: PaginationDto, @CurrentUser() user: JwtPayload, @StoreCtx() ctx: StoreContext) {
     return this.service.findAll(query, user.sub, user.role, ctx);
   }
 
   @Get(':id')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   findOne(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: JwtPayload,

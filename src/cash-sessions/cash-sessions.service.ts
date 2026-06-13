@@ -20,7 +20,17 @@ export class CashSessionsService {
     return requireStoreId(ctx);
   }
 
-  async getCurrent(userId: number, ctx: StoreContext) {
+  private isAdmin(role: UserRole): boolean {
+    return role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN;
+  }
+
+  private sanitizeSession<T extends Partial<CashSession>>(session: T, role: UserRole): T {
+    if (this.isAdmin(role)) return session;
+    const { expectedAmount, difference, ...safe } = session;
+    return safe as T;
+  }
+
+  async getCurrent(userId: number, ctx: StoreContext, role: UserRole) {
     const storeId = this.scopeStore(ctx);
     const session = await this.repo.findOne({
       where: { storeId, userId, status: CashSessionStatus.OPEN },
@@ -28,7 +38,7 @@ export class CashSessionsService {
     });
     if (!session) return null;
     const summary = await this.getSessionSummary(session.id);
-    return { ...session, summary };
+    return { ...this.sanitizeSession(session, role), summary };
   }
 
   async open(dto: OpenCashSessionDto, userId: number, ctx: StoreContext) {
@@ -51,7 +61,7 @@ export class CashSessionsService {
     return { ...session, summary };
   }
 
-  async close(id: number, dto: CloseCashSessionDto, userId: number, ctx: StoreContext) {
+  async close(id: number, dto: CloseCashSessionDto, userId: number, role: UserRole, ctx: StoreContext) {
     const storeId = this.scopeStore(ctx);
     const session = await this.repo.findOne({ where: { id, storeId, userId } });
     if (!session) throw new NotFoundException('Sesión de caja no encontrada');
@@ -70,7 +80,8 @@ export class CashSessionsService {
     session.closedAt = new Date();
     session.notes = dto.notes || session.notes;
 
-    return this.repo.save(session);
+    const saved = await this.repo.save(session);
+    return this.sanitizeSession(saved, role);
   }
 
   async findAll(query: PaginationDto, userId: number, role: UserRole, ctx: StoreContext) {
