@@ -39,6 +39,9 @@ import {
   demoCashier,
 } from './demo.data';
 
+/** Tiendas reales: no reciben productos demo automáticos */
+const SEED_MENU_SKIP_STORE_CODES = new Set(['flor-de-luna']);
+
 @Injectable()
 export class SeedService implements OnModuleInit {
   private readonly logger = new Logger(SeedService.name);
@@ -200,6 +203,10 @@ export class SeedService implements OnModuleInit {
   async seedMenuProductsAllStores() {
     const stores = await this.storesRepo.find({ where: { active: true } });
     for (const store of stores) {
+      if (SEED_MENU_SKIP_STORE_CODES.has(store.code.toLowerCase())) {
+        this.logger.log(`Seed menú omitido para ${store.name} (${store.code})`);
+        continue;
+      }
       const categoryMap = await this.ensureCategoryMap(store.id);
       const isCali = store.code === 'cali';
       await this.seedMenuProducts(store.id, categoryMap, isCali);
