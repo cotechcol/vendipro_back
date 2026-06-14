@@ -27,6 +27,7 @@ export class AppController {
     return { ok: db, db, users, tz: getAppTimezone() };
   }
 
+  @Public()
   @Get()
   getHello(): string {
     return this.appService.getHello();

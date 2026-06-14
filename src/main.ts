@@ -4,13 +4,12 @@ import { applyProcessTimezone } from './common/utils/timezone.util';
 config();
 applyProcessTimezone();
 
-import { ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
 import { runStoreMigration } from './database/store-migration';
 import { runProductMigration } from './database/product-migration';
+import { getExpressApp } from './app.factory';
 
-async function runMigrations() {
+async function runMigrations(): Promise<void> {
+  if (process.env.VERCEL) return;
   try {
     await runStoreMigration();
     await runProductMigration();
@@ -19,44 +18,18 @@ async function runMigrations() {
   }
 }
 
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   await runMigrations();
-
-  const app = await NestFactory.create(AppModule, {
-    logger:
-      process.env.NODE_ENV === 'production'
-        ? ['error', 'warn']
-        : ['log', 'error', 'warn'],
+  const expressApp = await getExpressApp();
+  const port = process.env.PORT ?? 3000;
+  expressApp.listen(port, () => {
+    console.log(`Servidor en http://localhost:${port}`);
   });
-
-  app.enableCors({
-    origin: (
-      _origin: string | undefined,
-      callback: (err: Error | null, allow?: boolean) => void,
-    ) => callback(null, true),
-    credentials: true,
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Store-Id',
-      'Accept',
-      'Origin',
-      'X-Requested-With',
-    ],
-    exposedHeaders: ['Authorization'],
-    maxAge: 86_400,
-  });
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: true },
-    }),
-  );
-
-  await app.listen(process.env.PORT ?? 3000);
 }
 
-bootstrap();
+if (!process.env.VERCEL) {
+  bootstrap().catch((err) => {
+    console.error('[bootstrap]', err);
+    process.exit(1);
+  });
+}

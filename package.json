@@ -5,7 +5,7 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
-  "main": "src/main.ts",
+  "main": "dist/main.js",
   "engines": {
     "node": ">=20"
   },
@@ -37,6 +37,7 @@
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "express": "^5.2.1",
     "mysql2": "^3.22.5",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",

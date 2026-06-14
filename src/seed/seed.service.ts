@@ -51,7 +51,7 @@ export class SeedService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    if (process.env.VERCEL) return;
+    if (process.env.VERCEL || process.env.SKIP_SEED === '1') return;
     await this.seedSuperAdmin();
     await this.seedDemo();
     await this.seedMenuProductsAllStores();
