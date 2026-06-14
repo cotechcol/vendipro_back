@@ -8,11 +8,19 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { runStoreMigration } from './database/store-migration';
+import { runProductMigration } from './database/product-migration';
+
+async function runMigrations() {
+  try {
+    await runStoreMigration();
+    await runProductMigration();
+  } catch (err) {
+    console.error('[migration] Error aplicando migraciones:', err);
+  }
+}
 
 async function bootstrap() {
-  if (!process.env.VERCEL) {
-    await runStoreMigration();
-  }
+  await runMigrations();
 
   const app = await NestFactory.create(AppModule, {
     logger:
