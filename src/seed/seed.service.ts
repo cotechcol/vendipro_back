@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from '../users/entities/user.entity';
 import { Setting } from '../settings/entities/setting.entity';
@@ -321,9 +321,33 @@ export class SeedService implements OnModuleInit {
     }
 
     for (const portion of portionList) {
-      if (skuToId.has(portion.sku)) continue;
-
       const hasOptions = 'optionGroups' in portion && portion.optionGroups?.length;
+      const existing = await this.productsRepo.findOne({
+        where: { storeId, sku: portion.sku },
+        relations: ['optionGroups'],
+      });
+
+      if (existing) {
+        skuToId.set(portion.sku, existing.id);
+        if (hasOptions) {
+          const needsOptions = !existing.optionGroups?.length || existing.baseProductId != null;
+          if (needsOptions) {
+            existing.baseProductId = null;
+            existing.scoopCount = portion.scoopCount ?? null;
+            existing.portionSize = portion.portionSize;
+            existing.description = portion.description ?? existing.description;
+            await this.productsRepo.save(existing);
+          }
+          await this.attachPortionOptionGroups(existing.id, portion, skuToId);
+          if (needsOptions) {
+            this.logger.log(`Menu demo: opciones agregadas a ${portion.sku} en tienda ${storeId}`);
+          } else {
+            this.logger.log(`Menu demo: opciones actualizadas en ${portion.sku} tienda ${storeId}`);
+          }
+        }
+        continue;
+      }
+
       const saved = await this.productsRepo.save(
         this.productsRepo.create({
           sku: portion.sku,
@@ -346,34 +370,7 @@ export class SeedService implements OnModuleInit {
       skuToId.set(portion.sku, saved.id);
 
       if (hasOptions && portion.optionGroups) {
-        let sortOrder = 0;
-        for (const groupDto of portion.optionGroups) {
-          const minSelect = groupDto.kind === 'flavor' ? portion.scoopCount : 1;
-          const group = await this.productsRepo.manager.save(
-            this.productsRepo.manager.create(ProductOptionGroup, {
-              productId: saved.id,
-              name: groupDto.name,
-              kind: groupDto.kind === 'flavor' ? OptionGroupKind.FLAVOR : OptionGroupKind.CONTAINER,
-              minSelect,
-              maxSelect: minSelect,
-              sortOrder: sortOrder++,
-            }),
-          );
-
-          for (const opt of groupDto.options) {
-            const ingredientProductId = skuToId.get(opt.ingredientSku);
-            if (!ingredientProductId) continue;
-            await this.productsRepo.manager.save(
-              this.productsRepo.manager.create(ProductOption, {
-                groupId: group.id,
-                name: opt.name,
-                ingredientProductId,
-                quantity: groupDto.kind === 'flavor' ? portion.portionSize : 1,
-                unit: groupDto.kind === 'flavor' ? StockUnit.G : StockUnit.UNIT,
-              }),
-            );
-          }
-        }
+        await this.attachPortionOptionGroups(saved.id, portion, skuToId);
       }
 
       this.logger.log(`Menu demo: porción ${portion.sku} en tienda ${storeId}`);
@@ -427,6 +424,49 @@ export class SeedService implements OnModuleInit {
       skuToId.set(composite.sku, saved.id);
       this.logger.log(`Menu demo: compuesto ${composite.sku} en tienda ${storeId}`);
     }
+  }
+
+  private async attachPortionOptionGroups(
+    productId: number,
+    portion: { scoopCount: number; portionSize: number; optionGroups: { name: string; kind: 'flavor' | 'container'; options: { name: string; ingredientSku: string }[] }[] },
+    skuToId: Map<string, number>,
+  ) {
+    await this.dataSource.transaction(async (manager) => {
+      const oldGroups = await manager.find(ProductOptionGroup, { where: { productId } });
+      if (oldGroups.length) {
+        await manager.delete(ProductOption, { groupId: In(oldGroups.map((g) => g.id)) });
+        await manager.delete(ProductOptionGroup, { productId });
+      }
+
+      let sortOrder = 0;
+      for (const groupDto of portion.optionGroups) {
+        const minSelect = groupDto.kind === 'flavor' ? portion.scoopCount : 1;
+        const group = await manager.save(
+          manager.create(ProductOptionGroup, {
+            productId,
+            name: groupDto.name,
+            kind: groupDto.kind === 'flavor' ? OptionGroupKind.FLAVOR : OptionGroupKind.CONTAINER,
+            minSelect,
+            maxSelect: minSelect,
+            sortOrder: sortOrder++,
+          }),
+        );
+
+        for (const opt of groupDto.options) {
+          const ingredientProductId = skuToId.get(opt.ingredientSku);
+          if (!ingredientProductId) continue;
+          await manager.save(
+            manager.create(ProductOption, {
+              groupId: group.id,
+              name: opt.name,
+              ingredientProductId,
+              quantity: groupDto.kind === 'flavor' ? portion.portionSize : 1,
+              unit: groupDto.kind === 'flavor' ? StockUnit.G : StockUnit.UNIT,
+            }),
+          );
+        }
+      }
+    });
   }
 
   private async seedPurchases(storeId: number) {
