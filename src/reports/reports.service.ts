@@ -4,6 +4,7 @@ import { Repository, Between } from 'typeorm';
 import { Sale } from '../sales/entities/sale.entity';
 import { SaleItem } from '../sales/entities/sale-item.entity';
 import { Product } from '../products/entities/product.entity';
+import { ProductType } from '../common/enums';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { reportStoreId } from '../common/utils/store-context.util';
 import {
@@ -94,14 +95,30 @@ export class ReportsService {
       order: { name: 'ASC' },
     });
 
-    const totalValue = products.reduce((s, p) => s + Number(p.costPrice) * p.stock, 0);
-    const totalRetail = products.reduce((s, p) => s + Number(p.salePrice) * p.stock, 0);
+    const stockNum = (p: Product) => Number(p.stock ?? 0);
+    const stockProducts = products.filter(
+      (p) => p.productType === ProductType.SIMPLE || p.productType === ProductType.BULK,
+    );
+
+    const totalValue = stockProducts.reduce(
+      (s, p) => s + Number(p.costPrice) * stockNum(p),
+      0,
+    );
+    const totalRetail = products
+      .filter((p) => p.productType === ProductType.SIMPLE)
+      .reduce((s, p) => s + Number(p.salePrice) * stockNum(p), 0);
 
     return {
       products,
       summary: {
         totalProducts: products.length,
-        totalUnits: products.reduce((s, p) => s + p.stock, 0),
+        /** Solo productos por unidad (botellas, paquetes…) — no gramos de insumos */
+        totalUnits: products
+          .filter((p) => p.productType === ProductType.SIMPLE)
+          .reduce((s, p) => s + Math.floor(stockNum(p)), 0),
+        bulkInsumos: products.filter(
+          (p) => p.productType === ProductType.BULK && stockNum(p) > 0,
+        ).length,
         inventoryCost: Number(totalValue.toFixed(2)),
         inventoryRetail: Number(totalRetail.toFixed(2)),
       },
