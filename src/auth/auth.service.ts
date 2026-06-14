@@ -14,10 +14,11 @@ export class AuthService {
   ) {}
 
   async login(email: string, password: string) {
-    const user = await this.usersRepo.findOne({
-      where: { email },
-      relations: ['store'],
-    });
+    const user = await this.usersRepo
+      .createQueryBuilder('u')
+      .leftJoinAndSelect('u.store', 'store')
+      .where('LOWER(u.email) = LOWER(:email)', { email: email.trim() })
+      .getOne();
     if (!user || !user.active) {
       throw new UnauthorizedException('Credenciales inválidas');
     }

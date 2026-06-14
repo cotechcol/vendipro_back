@@ -300,6 +300,11 @@ export class SeedService implements OnModuleInit {
 
     for (const composite of compositeList) {
       if (skuToId.has(composite.sku)) continue;
+      const already = await this.productsRepo.findOne({ where: { storeId, sku: composite.sku } });
+      if (already) {
+        skuToId.set(composite.sku, already.id);
+        continue;
+      }
       const recipeLines = composite.recipe
         .map((line) => {
           const ingredientProductId = skuToId.get(line.ingredientSku);

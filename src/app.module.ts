@@ -50,7 +50,7 @@ import { SaleItem } from './sales/entities/sale-item.entity';
           Store, User, Category, Product, ProductRecipe, Customer, Supplier, Setting,
           InventoryMovement, Purchase, PurchaseItem, CashSession, Sale, SaleItem,
         ],
-        synchronize: process.env.NODE_ENV !== 'production',
+        synchronize: false,
         timezone: 'Z',
         logging: process.env.NODE_ENV === 'production' ? ['error'] : true,
         retryAttempts: 3,
