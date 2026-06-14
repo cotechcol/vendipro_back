@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -45,6 +45,27 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException();
     return this.toUserResponse(user);
+  }
+
+  async changePassword(userId: number, currentPassword: string, newPassword: string) {
+    const user = await this.usersRepo.findOne({ where: { id: userId } });
+    if (!user || !user.active) {
+      throw new UnauthorizedException('Usuario no encontrado');
+    }
+
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!valid) {
+      throw new BadRequestException('La contraseña actual es incorrecta');
+    }
+
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('La nueva contraseña debe ser diferente a la actual');
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await this.usersRepo.save(user);
+
+    return { message: 'Contraseña actualizada correctamente' };
   }
 
   private toUserResponse(user: User) {
