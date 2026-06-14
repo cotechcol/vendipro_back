@@ -41,4 +41,7 @@ export class SaleItem {
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   subtotal: number;
+
+  @Column({ name: 'selected_options', type: 'json', nullable: true })
+  selectedOptions: { optionIds: number[]; labels: string[] } | null;
 }

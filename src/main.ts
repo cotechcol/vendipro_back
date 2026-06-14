@@ -11,9 +11,8 @@ import { runStoreMigration } from './database/store-migration';
 import { runProductMigration } from './database/product-migration';
 
 async function runMigrations(): Promise<void> {
-  if (process.env.VERCEL) return;
   try {
-    await runStoreMigration();
+    if (!process.env.VERCEL) await runStoreMigration();
     await runProductMigration();
   } catch (err) {
     console.error('[migration] Error aplicando migraciones:', err);

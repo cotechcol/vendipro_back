@@ -16,6 +16,7 @@ import { InventoryMovement } from '../../inventory/entities/inventory-movement.e
 import { SaleItem } from '../../sales/entities/sale-item.entity';
 import { PurchaseItem } from '../../purchases/entities/purchase-item.entity';
 import { ProductRecipe } from './product-recipe.entity';
+import { ProductOptionGroup } from './product-option-group.entity';
 
 @Entity('products')
 @Unique(['storeId', 'sku'])
@@ -56,6 +57,10 @@ export class Product {
   @Column({ name: 'portion_size', type: 'decimal', precision: 12, scale: 3, nullable: true })
   portionSize: number | null;
 
+  /** Bolas de helado cuando el producto usa opciones de sabor */
+  @Column({ name: 'scoop_count', type: 'int', nullable: true })
+  scoopCount: number | null;
+
   @Column({ name: 'sale_price', type: 'decimal', precision: 12, scale: 2 })
   salePrice: number;
 
@@ -80,6 +85,9 @@ export class Product {
 
   @OneToMany(() => ProductRecipe, (recipe) => recipe.product, { cascade: true })
   recipe: ProductRecipe[];
+
+  @OneToMany(() => ProductOptionGroup, (group) => group.product, { cascade: true })
+  optionGroups: ProductOptionGroup[];
 
   @OneToMany(() => InventoryMovement, (movement) => movement.product)
   movements: InventoryMovement[];

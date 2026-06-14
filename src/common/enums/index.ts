@@ -34,3 +34,8 @@ export enum StockUnit {
   G = 'g',
   ML = 'ml',
 }
+
+export enum OptionGroupKind {
+  FLAVOR = 'flavor',
+  CONTAINER = 'container',
+}

@@ -45,6 +45,24 @@ export const demoBulkProducts = [
     costPrice: 12,
   },
   {
+    sku: 'INS-HEL-FRE',
+    name: 'Helado fresa (insumo)',
+    category: 'Heladería',
+    description: 'Balde de helado de fresa',
+    stock: 8000,
+    minStock: 400,
+    costPrice: 13,
+  },
+  {
+    sku: 'INS-HEL-CHO',
+    name: 'Helado chocolate (insumo)',
+    category: 'Heladería',
+    description: 'Balde de helado de chocolate',
+    stock: 8000,
+    minStock: 400,
+    costPrice: 14,
+  },
+  {
     sku: 'INS-PIN-001',
     name: 'Piña calada (insumo)',
     category: 'Comida rápida',
@@ -90,37 +108,116 @@ export const demoIngredientSimple = {
   minStock: 10,
 };
 
-/** Porciones de venta ligadas a un insumo base */
+/** Envases para helados — unidades simples */
+export const demoIceCreamContainers = [
+  {
+    sku: 'INS-GAL-001',
+    name: 'Galleta wafer',
+    category: 'Heladería',
+    salePrice: 0,
+    costPrice: 300,
+    stock: 200,
+    minStock: 20,
+  },
+  {
+    sku: 'INS-VAS-001',
+    name: 'Vaso desechable',
+    category: 'Heladería',
+    salePrice: 0,
+    costPrice: 250,
+    stock: 150,
+    minStock: 15,
+  },
+];
+
+/** Porciones de venta con sabores y envase configurables */
 export const demoPortionProducts = [
   {
     sku: 'POR-HEL-001',
     name: 'Helado 1 bola',
     category: 'Heladería',
-    description: 'Una bola de helado vainilla (90 g)',
-    baseSku: 'INS-HEL-001',
+    description: 'Elige sabor y envase al vender',
+    scoopCount: 1,
     portionSize: 90,
     salePrice: 4500,
     costPrice: 1080,
+    optionGroups: [
+      {
+        name: 'Sabor',
+        kind: 'flavor' as const,
+        options: [
+          { name: 'Vainilla', ingredientSku: 'INS-HEL-001' },
+          { name: 'Fresa', ingredientSku: 'INS-HEL-FRE' },
+          { name: 'Chocolate', ingredientSku: 'INS-HEL-CHO' },
+        ],
+      },
+      {
+        name: 'Envase',
+        kind: 'container' as const,
+        options: [
+          { name: 'Galleta', ingredientSku: 'INS-GAL-001' },
+          { name: 'Vaso', ingredientSku: 'INS-VAS-001' },
+        ],
+      },
+    ],
   },
   {
     sku: 'POR-HEL-002',
     name: 'Helado 2 bolas',
     category: 'Heladería',
-    description: 'Dos bolas de helado vainilla (180 g)',
-    baseSku: 'INS-HEL-001',
-    portionSize: 180,
+    description: 'Dos bolas — elige sabor de cada una',
+    scoopCount: 2,
+    portionSize: 90,
     salePrice: 7500,
     costPrice: 2160,
+    optionGroups: [
+      {
+        name: 'Sabor',
+        kind: 'flavor' as const,
+        options: [
+          { name: 'Vainilla', ingredientSku: 'INS-HEL-001' },
+          { name: 'Fresa', ingredientSku: 'INS-HEL-FRE' },
+          { name: 'Chocolate', ingredientSku: 'INS-HEL-CHO' },
+        ],
+      },
+      {
+        name: 'Envase',
+        kind: 'container' as const,
+        options: [
+          { name: 'Galleta', ingredientSku: 'INS-GAL-001' },
+          { name: 'Vaso', ingredientSku: 'INS-VAS-001' },
+        ],
+      },
+    ],
   },
   {
     sku: 'POR-HEL-003',
     name: 'Helado 3 bolas',
     category: 'Heladería',
-    description: 'Tres bolas de helado vainilla (270 g)',
-    baseSku: 'INS-HEL-001',
-    portionSize: 270,
+    description: 'Tres bolas — elige sabor de cada una',
+    scoopCount: 3,
+    portionSize: 90,
     salePrice: 10500,
     costPrice: 3240,
+    optionGroups: [
+      {
+        name: 'Sabor',
+        kind: 'flavor' as const,
+        options: [
+          { name: 'Vainilla', ingredientSku: 'INS-HEL-001' },
+          { name: 'Fresa', ingredientSku: 'INS-HEL-FRE' },
+          { name: 'Chocolate', ingredientSku: 'INS-HEL-CHO' },
+        ],
+      },
+      {
+        name: 'Envase',
+        kind: 'container' as const,
+        options: [
+          { name: 'Galleta', ingredientSku: 'INS-GAL-001' },
+          { name: 'Vaso', ingredientSku: 'INS-VAS-001' },
+        ],
+      },
+    ],
   },
 ];
 
@@ -148,6 +245,7 @@ export const demoPortionProductsCali = demoPortionProducts.filter((p) => p.sku =
 export const demoCompositeProductsCali = demoCompositeProducts;
 export const demoBulkProductsCali = demoBulkProducts;
 export const demoIngredientSimpleCali = demoIngredientSimple;
+export const demoIceCreamContainersCali = demoIceCreamContainers;
 
 export const demoCustomers = [
   { name: 'María González', email: 'maria@email.com', phone: '300-1234567', address: 'Calle 45 #12-34, Bogotá' },

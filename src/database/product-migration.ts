@@ -104,6 +104,66 @@ export async function runProductMigration(): Promise<void> {
       console.log('[product-migration] Tabla product_recipes creada');
     }
 
+    if (!(await columnExists(connection, 'products', 'scoop_count'))) {
+      await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN scoop_count INT NULL
+        AFTER portion_size
+      `);
+      console.log('[product-migration] Columna scoop_count agregada');
+    }
+
+    if (!(await tableExists(connection, 'product_option_groups'))) {
+      await connection.query(`
+        CREATE TABLE product_option_groups (
+          id INT NOT NULL AUTO_INCREMENT,
+          product_id INT NOT NULL,
+          name VARCHAR(100) NOT NULL,
+          kind ENUM('flavor','container') NOT NULL,
+          min_select INT NOT NULL DEFAULT 1,
+          max_select INT NOT NULL DEFAULT 1,
+          sort_order INT NOT NULL DEFAULT 0,
+          PRIMARY KEY (id),
+          KEY IDX_option_groups_product (product_id),
+          CONSTRAINT FK_option_groups_product
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      console.log('[product-migration] Tabla product_option_groups creada');
+    }
+
+    if (!(await tableExists(connection, 'product_options'))) {
+      await connection.query(`
+        CREATE TABLE product_options (
+          id INT NOT NULL AUTO_INCREMENT,
+          group_id INT NOT NULL,
+          name VARCHAR(100) NOT NULL,
+          ingredient_product_id INT NOT NULL,
+          quantity DECIMAL(12,3) NOT NULL,
+          unit ENUM('unit','g','ml') NOT NULL DEFAULT 'g',
+          PRIMARY KEY (id),
+          KEY IDX_product_options_group (group_id),
+          KEY IDX_product_options_ingredient (ingredient_product_id),
+          CONSTRAINT FK_product_options_group
+            FOREIGN KEY (group_id) REFERENCES product_option_groups(id) ON DELETE CASCADE,
+          CONSTRAINT FK_product_options_ingredient
+            FOREIGN KEY (ingredient_product_id) REFERENCES products(id)
+        ) ENGINE=InnoDB
+      `);
+      console.log('[product-migration] Tabla product_options creada');
+    }
+
+    if (await tableExists(connection, 'sale_items')) {
+      if (!(await columnExists(connection, 'sale_items', 'selected_options'))) {
+        await connection.query(`
+          ALTER TABLE sale_items
+          ADD COLUMN selected_options JSON NULL
+          AFTER subtotal
+        `);
+        console.log('[product-migration] Columna sale_items.selected_options agregada');
+      }
+    }
+
     if (await tableExists(connection, 'inventory_movements')) {
       await connection.query(`
         ALTER TABLE inventory_movements

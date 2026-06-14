@@ -2,15 +2,27 @@ import {
   Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { ProductRecipe } from './entities/product-recipe.entity';
+import { ProductOptionGroup } from './entities/product-option-group.entity';
+import { ProductOption } from './entities/product-option.entity';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
-import { ProductType, StockUnit } from '../common/enums';
+import { OptionGroupKind, ProductType, StockUnit } from '../common/enums';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
 import { getSellableUnits, isLowStock } from './product-stock.util';
+
+const PRODUCT_RELATIONS = [
+  'category',
+  'baseProduct',
+  'recipe',
+  'recipe.ingredient',
+  'optionGroups',
+  'optionGroups.options',
+  'optionGroups.options.ingredient',
+] as const;
 
 @Injectable()
 export class ProductsService {
@@ -43,6 +55,9 @@ export class ProductsService {
       .leftJoinAndSelect('p.baseProduct', 'baseProduct')
       .leftJoinAndSelect('p.recipe', 'recipe')
       .leftJoinAndSelect('recipe.ingredient', 'ingredient')
+      .leftJoinAndSelect('p.optionGroups', 'optionGroups')
+      .leftJoinAndSelect('optionGroups.options', 'options')
+      .leftJoinAndSelect('options.ingredient', 'optionIngredient')
       .where('p.storeId = :storeId', { storeId })
       .orderBy('p.name', 'ASC')
       .skip((page - 1) * limit)
@@ -81,6 +96,9 @@ export class ProductsService {
       .leftJoinAndSelect('p.baseProduct', 'baseProduct')
       .leftJoinAndSelect('p.recipe', 'recipe')
       .leftJoinAndSelect('recipe.ingredient', 'ingredient')
+      .leftJoinAndSelect('p.optionGroups', 'optionGroups')
+      .leftJoinAndSelect('optionGroups.options', 'options')
+      .leftJoinAndSelect('options.ingredient', 'optionIngredient')
       .where('p.storeId = :storeId', { storeId })
       .andWhere('p.active = true')
       .andWhere('p.productType != :bulk', { bulk: ProductType.BULK })
@@ -117,7 +135,7 @@ export class ProductsService {
   async findOne(id: number, ctx: StoreContext) {
     const product = await this.repo.findOne({
       where: { id },
-      relations: ['category', 'baseProduct', 'recipe', 'recipe.ingredient'],
+      relations: [...PRODUCT_RELATIONS],
     });
     if (!product) throw new NotFoundException('Producto no encontrado');
     if (product.storeId !== this.scopeStore(ctx)) {
@@ -129,13 +147,28 @@ export class ProductsService {
     return this.enrichProduct(product, sellable);
   }
 
-  private validateProductDto(dto: CreateProductDto | UpdateProductDto, type: ProductType, storeId: number) {
+  private validateProductDto(dto: CreateProductDto | UpdateProductDto, type: ProductType) {
     if (type === ProductType.PORTION) {
-      if (!('baseProductId' in dto) || !dto.baseProductId) {
-        throw new BadRequestException('Selecciona el insumo base');
+      const hasOptions = 'optionGroups' in dto && dto.optionGroups?.length;
+      if (!hasOptions) {
+        if (!('baseProductId' in dto) || !dto.baseProductId) {
+          throw new BadRequestException('Selecciona el insumo base o configura sabores');
+        }
+      } else {
+        if (!('scoopCount' in dto) || !dto.scoopCount) {
+          throw new BadRequestException('Indica cuántas bolas incluye el helado');
+        }
+        const flavorGroup = dto.optionGroups!.find((g) => g.kind === OptionGroupKind.FLAVOR);
+        const containerGroup = dto.optionGroups!.find((g) => g.kind === OptionGroupKind.CONTAINER);
+        if (!flavorGroup?.options?.length) {
+          throw new BadRequestException('Agrega al menos un sabor');
+        }
+        if (!containerGroup?.options?.length) {
+          throw new BadRequestException('Agrega al menos un envase (galleta o vaso)');
+        }
       }
       if (!('portionSize' in dto) || !dto.portionSize) {
-        throw new BadRequestException('Indica cuántos gramos/ml descuenta cada venta');
+        throw new BadRequestException('Indica cuántos gramos/ml descuenta cada bola');
       }
     }
     if (type === ProductType.COMPOSITE) {
@@ -146,7 +179,6 @@ export class ProductsService {
     if (type === ProductType.BULK && !dto.stockUnit) {
       throw new BadRequestException('Indica la unidad del insumo (g o ml)');
     }
-    return storeId;
   }
 
   async create(dto: CreateProductDto, ctx: StoreContext) {
@@ -155,7 +187,7 @@ export class ProductsService {
     if (exists) throw new ConflictException('El SKU ya existe en esta tienda');
 
     const productType = dto.productType ?? ProductType.SIMPLE;
-    this.validateProductDto(dto, productType, storeId);
+    this.validateProductDto(dto, productType);
 
     if (dto.baseProductId) {
       const base = await this.repo.findOne({ where: { id: dto.baseProductId, storeId } });
@@ -164,7 +196,9 @@ export class ProductsService {
       }
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    let savedId = 0;
+    await this.dataSource.transaction(async (manager) => {
+      const hasOptions = productType === ProductType.PORTION && dto.optionGroups?.length;
       const product = manager.create(Product, {
         ...dto,
         storeId,
@@ -172,8 +206,11 @@ export class ProductsService {
         stockUnit: dto.stockUnit ?? (productType === ProductType.BULK ? StockUnit.G : StockUnit.UNIT),
         stock: productType === ProductType.PORTION || productType === ProductType.COMPOSITE ? 0 : (dto.stock ?? 0),
         salePrice: productType === ProductType.BULK ? 0 : dto.salePrice,
+        baseProductId: hasOptions ? null : (dto.baseProductId ?? null),
+        scoopCount: hasOptions ? dto.scoopCount : null,
       });
       const saved = await manager.save(product);
+      savedId = saved.id;
 
       if (productType === ProductType.COMPOSITE && dto.recipe) {
         for (const line of dto.recipe) {
@@ -187,14 +224,18 @@ export class ProductsService {
         }
       }
 
-      return this.findOne(saved.id, ctx);
+      if (hasOptions && dto.optionGroups) {
+        await this.saveOptionGroups(manager, saved.id, dto.optionGroups, dto.portionSize!, dto.scoopCount!, storeId);
+      }
     });
+
+    return this.findOne(savedId, ctx);
   }
 
   async update(id: number, dto: UpdateProductDto, ctx: StoreContext) {
     const existing = await this.repo.findOne({
       where: { id },
-      relations: ['recipe'],
+      relations: ['recipe', 'optionGroups', 'optionGroups.options'],
     });
     if (!existing) throw new NotFoundException('Producto no encontrado');
     if (existing.storeId !== this.scopeStore(ctx)) {
@@ -209,7 +250,19 @@ export class ProductsService {
       throw new BadRequestException('Solo productos compuestos tienen receta');
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    if (existing.productType === ProductType.PORTION && dto.optionGroups) {
+      this.validateProductDto(
+        { ...dto, productType: ProductType.PORTION } as CreateProductDto,
+        ProductType.PORTION,
+      );
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const hasOptions = dto.optionGroups?.length;
+      if (hasOptions) {
+        existing.baseProductId = null;
+        existing.scoopCount = dto.scoopCount ?? existing.scoopCount;
+      }
       Object.assign(existing, dto);
       await manager.save(Product, existing);
 
@@ -226,11 +279,61 @@ export class ProductsService {
         }
       }
 
-      return this.findOne(existing.id, ctx);
+      if (dto.optionGroups && existing.productType === ProductType.PORTION) {
+        await manager.delete(ProductOptionGroup, { productId: existing.id });
+        await this.saveOptionGroups(
+          manager,
+          existing.id,
+          dto.optionGroups,
+          dto.portionSize ?? Number(existing.portionSize),
+          dto.scoopCount ?? existing.scoopCount ?? 1,
+          existing.storeId,
+        );
+      }
     });
+
+    return this.findOne(existing.id, ctx);
   }
 
-  private async validateIngredient(manager: typeof this.dataSource.manager, ingredientId: number, storeId: number) {
+  private async saveOptionGroups(
+    manager: EntityManager,
+    productId: number,
+    groups: CreateProductDto['optionGroups'],
+    portionSize: number,
+    scoopCount: number,
+    storeId: number,
+  ) {
+    let sortOrder = 0;
+    for (const groupDto of groups ?? []) {
+      const minSelect = groupDto.kind === OptionGroupKind.FLAVOR ? scoopCount : 1;
+      const group = await manager.save(manager.create(ProductOptionGroup, {
+        productId,
+        name: groupDto.name,
+        kind: groupDto.kind,
+        minSelect,
+        maxSelect: minSelect,
+        sortOrder: sortOrder++,
+      }));
+
+      for (const opt of groupDto.options) {
+        await this.validateIngredient(manager, opt.ingredientProductId, storeId);
+        const quantity = opt.quantity
+          ?? (groupDto.kind === OptionGroupKind.FLAVOR ? portionSize : 1);
+        const unit = opt.unit
+          ?? (groupDto.kind === OptionGroupKind.FLAVOR ? StockUnit.G : StockUnit.UNIT);
+
+        await manager.save(manager.create(ProductOption, {
+          groupId: group.id,
+          name: opt.name,
+          ingredientProductId: opt.ingredientProductId,
+          quantity,
+          unit,
+        }));
+      }
+    }
+  }
+
+  private async validateIngredient(manager: EntityManager, ingredientId: number, storeId: number) {
     const ingredient = await manager.findOne(Product, { where: { id: ingredientId, storeId } });
     if (!ingredient) {
       throw new BadRequestException(`Ingrediente ${ingredientId} no encontrado`);

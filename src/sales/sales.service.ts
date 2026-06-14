@@ -82,13 +82,26 @@ export class SalesService {
       for (const item of dto.items) {
         const product = await manager.findOne(Product, {
           where: { id: item.productId, storeId },
-          relations: ['baseProduct', 'recipe', 'recipe.ingredient'],
+          relations: [
+            'baseProduct',
+            'recipe',
+            'recipe.ingredient',
+            'optionGroups',
+            'optionGroups.options',
+            'optionGroups.options.ingredient',
+          ],
         });
         if (!product || !product.active) {
           throw new NotFoundException(`Producto ${item.productId} no encontrado`);
         }
 
-        const deductions = await planStockDeductions(manager, product, item.quantity, storeId);
+        const deductions = await planStockDeductions(
+          manager,
+          product,
+          item.quantity,
+          storeId,
+          item.selectedOptionIds,
+        );
         const reference = `SALE-${Date.now()}-${product.id}`;
         await applyStockDeductions(manager, deductions, storeId, userId, reference);
 
@@ -98,14 +111,32 @@ export class SalesService {
         totalWithTax += subtotal;
         profit += (unitPrice - unitCost) * item.quantity;
 
+        let productName = product.name;
+        let selectedOptions: { optionIds: number[]; labels: string[] } | null = null;
+        if (item.selectedOptionIds?.length) {
+          const labels: string[] = [];
+          for (const group of product.optionGroups ?? []) {
+            for (const option of group.options ?? []) {
+              if (item.selectedOptionIds.includes(option.id)) {
+                labels.push(option.name);
+              }
+            }
+          }
+          if (labels.length) {
+            productName = `${product.name} (${labels.join(', ')})`;
+            selectedOptions = { optionIds: item.selectedOptionIds, labels };
+          }
+        }
+
         saleItems.push(
           manager.create(SaleItem, {
             productId: product.id,
-            productName: product.name,
+            productName,
             quantity: item.quantity,
             unitPrice,
             unitCost,
             subtotal,
+            selectedOptions,
           }),
         );
       }

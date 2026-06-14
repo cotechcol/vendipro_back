@@ -13,6 +13,13 @@ export class SaleItemDto {
   @IsInt()
   @Min(1)
   quantity: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @Type(() => Number)
+  @IsInt({ each: true })
+  selectedOptionIds?: number[];
 }
 
 export class CreateSaleDto {

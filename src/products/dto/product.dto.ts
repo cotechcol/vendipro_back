@@ -3,7 +3,7 @@ import {
   IsEnum, IsArray, ValidateNested, ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ProductType, StockUnit } from '../../common/enums';
+import { ProductType, StockUnit, OptionGroupKind } from '../../common/enums';
 
 export class RecipeItemDto {
   @Type(() => Number)
@@ -18,6 +18,40 @@ export class RecipeItemDto {
   @IsOptional()
   @IsEnum(StockUnit)
   unit?: StockUnit;
+}
+
+export class ProductOptionDto {
+  @IsString()
+  @MinLength(1)
+  name: string;
+
+  @Type(() => Number)
+  @IsInt()
+  ingredientProductId: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  quantity?: number;
+
+  @IsOptional()
+  @IsEnum(StockUnit)
+  unit?: StockUnit;
+}
+
+export class ProductOptionGroupDto {
+  @IsString()
+  @MinLength(1)
+  name: string;
+
+  @IsEnum(OptionGroupKind)
+  kind: OptionGroupKind;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductOptionDto)
+  options: ProductOptionDto[];
 }
 
 export class CreateProductDto {
@@ -41,7 +75,7 @@ export class CreateProductDto {
   @IsEnum(StockUnit)
   stockUnit?: StockUnit;
 
-  @ValidateIf((o) => o.productType === ProductType.PORTION)
+  @ValidateIf((o) => o.productType === ProductType.PORTION && !o.optionGroups?.length)
   @Type(() => Number)
   @IsInt()
   baseProductId?: number;
@@ -51,6 +85,18 @@ export class CreateProductDto {
   @IsNumber()
   @Min(0.001)
   portionSize?: number;
+
+  @ValidateIf((o) => o.productType === ProductType.PORTION && o.optionGroups?.length)
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  scoopCount?: number;
+
+  @ValidateIf((o) => o.productType === ProductType.PORTION && o.optionGroups?.length)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductOptionGroupDto)
+  optionGroups?: ProductOptionGroupDto[];
 
   @ValidateIf((o) => o.productType !== ProductType.BULK)
   @Type(() => Number)
@@ -137,6 +183,18 @@ export class UpdateProductDto {
   @Type(() => Number)
   @IsInt()
   categoryId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  scoopCount?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductOptionGroupDto)
+  optionGroups?: ProductOptionGroupDto[];
 
   @IsOptional()
   @IsBoolean()
