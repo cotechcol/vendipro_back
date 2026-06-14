@@ -39,8 +39,16 @@ import {
   demoCashier,
 } from './demo.data';
 
-/** Tiendas reales: no reciben productos demo automáticos */
-const SEED_MENU_SKIP_STORE_CODES = new Set(['flor-de-luna']);
+/** Tiendas reales: nunca reciben ni sobrescriben productos demo */
+function getSeedMenuSkipStoreCodes(): Set<string> {
+  const codes = new Set(['flor-de-luna']);
+  const fromEnv = process.env.SEED_SKIP_STORES
+    ?.split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (fromEnv?.length) fromEnv.forEach((c) => codes.add(c));
+  return codes;
+}
 
 @Injectable()
 export class SeedService implements OnModuleInit {
@@ -202,8 +210,9 @@ export class SeedService implements OnModuleInit {
   /** Agrega helados y hamburguesa demo si aún no existen (también en tiendas ya creadas) */
   async seedMenuProductsAllStores() {
     const stores = await this.storesRepo.find({ where: { active: true } });
+    const skipStores = getSeedMenuSkipStoreCodes();
     for (const store of stores) {
-      if (SEED_MENU_SKIP_STORE_CODES.has(store.code.toLowerCase())) {
+      if (skipStores.has(store.code.toLowerCase())) {
         this.logger.log(`Seed menú omitido para ${store.name} (${store.code})`);
         continue;
       }
@@ -344,12 +353,8 @@ export class SeedService implements OnModuleInit {
             existing.portionSize = portion.portionSize;
             existing.description = portion.description ?? existing.description;
             await this.productsRepo.save(existing);
-          }
-          await this.attachPortionOptionGroups(existing.id, portion, skuToId);
-          if (needsOptions) {
+            await this.attachPortionOptionGroups(existing.id, portion, skuToId);
             this.logger.log(`Menu demo: opciones agregadas a ${portion.sku} en tienda ${storeId}`);
-          } else {
-            this.logger.log(`Menu demo: opciones actualizadas en ${portion.sku} tienda ${storeId}`);
           }
         }
         continue;
