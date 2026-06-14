@@ -7,6 +7,7 @@ export const demoCategories = [
   { name: 'Abarrotes', description: 'Productos de despensa básica' },
   { name: 'Heladería', description: 'Helados y postres' },
   { name: 'Comida rápida', description: 'Hamburguesas y platos preparados' },
+  { name: 'Chuzos', description: 'Brochetas de pollo, carne y mixtas' },
 ];
 
 export const demoProducts = [
@@ -63,6 +64,14 @@ export const demoBulkProducts = [
     costPrice: 14,
   },
   {
+    sku: 'INS-HEL-MEN',
+    name: 'Helado menta (insumo)',
+    category: 'Heladería',
+    stock: 6000,
+    minStock: 300,
+    costPrice: 13,
+  },
+  {
     sku: 'INS-PIN-001',
     name: 'Piña calada (insumo)',
     category: 'Comida rápida',
@@ -95,18 +104,79 @@ export const demoBulkProducts = [
     minStock: 100,
     costPrice: 6,
   },
+  {
+    sku: 'INS-POL-001',
+    name: 'Pollo marinado (insumo)',
+    category: 'Comida rápida',
+    description: 'Pechuga en cubos para hamburguesas y chuzos',
+    stock: 6000,
+    minStock: 250,
+    costPrice: 16,
+  },
+  {
+    sku: 'INS-RES-001',
+    name: 'Carne en cubos (insumo)',
+    category: 'Chuzos',
+    description: 'Res en cubos para brochetas',
+    stock: 5000,
+    minStock: 200,
+    costPrice: 24,
+  },
+  {
+    sku: 'INS-TOM-001',
+    name: 'Tomate (insumo)',
+    category: 'Comida rápida',
+    stock: 3000,
+    minStock: 150,
+    costPrice: 5,
+  },
+  {
+    sku: 'INS-CEB-001',
+    name: 'Cebolla (insumo)',
+    category: 'Comida rápida',
+    stock: 2500,
+    minStock: 120,
+    costPrice: 4,
+  },
+  {
+    sku: 'INS-SAL-001',
+    name: 'Salsa BBQ (insumo)',
+    category: 'Comida rápida',
+    stock: 2000,
+    minStock: 100,
+    costPrice: 7,
+  },
+  {
+    sku: 'INS-PAP-FRI',
+    name: 'Papas prefritas (insumo)',
+    category: 'Comida rápida',
+    stock: 8000,
+    minStock: 300,
+    costPrice: 9,
+  },
 ];
 
-/** Pan para hamburguesa — unidad simple usada como ingrediente */
-export const demoIngredientSimple = {
-  sku: 'INS-PAN-001',
-  name: 'Pan hamburguesa',
-  category: 'Comida rápida',
-  salePrice: 0,
-  costPrice: 800,
-  stock: 80,
-  minStock: 10,
-};
+/** Insumos en unidades (pan, palitos, envases…) */
+export const demoIngredientSimples = [
+  {
+    sku: 'INS-PAN-001',
+    name: 'Pan hamburguesa',
+    category: 'Comida rápida',
+    salePrice: 0,
+    costPrice: 800,
+    stock: 120,
+    minStock: 15,
+  },
+  {
+    sku: 'INS-PAL-001',
+    name: 'Palito brocheta',
+    category: 'Chuzos',
+    salePrice: 0,
+    costPrice: 150,
+    stock: 300,
+    minStock: 30,
+  },
+];
 
 /** Envases para helados — unidades simples */
 export const demoIceCreamContainers = [
@@ -149,6 +219,7 @@ export const demoPortionProducts = [
           { name: 'Vainilla', ingredientSku: 'INS-HEL-001' },
           { name: 'Fresa', ingredientSku: 'INS-HEL-FRE' },
           { name: 'Chocolate', ingredientSku: 'INS-HEL-CHO' },
+          { name: 'Menta', ingredientSku: 'INS-HEL-MEN' },
         ],
       },
       {
@@ -178,6 +249,7 @@ export const demoPortionProducts = [
           { name: 'Vainilla', ingredientSku: 'INS-HEL-001' },
           { name: 'Fresa', ingredientSku: 'INS-HEL-FRE' },
           { name: 'Chocolate', ingredientSku: 'INS-HEL-CHO' },
+          { name: 'Menta', ingredientSku: 'INS-HEL-MEN' },
         ],
       },
       {
@@ -207,6 +279,7 @@ export const demoPortionProducts = [
           { name: 'Vainilla', ingredientSku: 'INS-HEL-001' },
           { name: 'Fresa', ingredientSku: 'INS-HEL-FRE' },
           { name: 'Chocolate', ingredientSku: 'INS-HEL-CHO' },
+          { name: 'Menta', ingredientSku: 'INS-HEL-MEN' },
         ],
       },
       {
@@ -218,6 +291,56 @@ export const demoPortionProducts = [
         ],
       },
     ],
+  },
+];
+
+/** Productos simples de menú (se venden directo en POS) */
+export const demoMenuSimpleProducts = [
+  {
+    sku: 'MENU-PAP-001',
+    name: 'Papas fritas medianas',
+    category: 'Comida rápida',
+    description: 'Porción individual de papas',
+    salePrice: 6500,
+    costPrice: 2200,
+    stock: 45,
+    minStock: 10,
+  },
+  {
+    sku: 'MENU-LIM-001',
+    name: 'Limonada natural',
+    category: 'Bebidas',
+    salePrice: 5000,
+    costPrice: 1500,
+    stock: 35,
+    minStock: 8,
+  },
+  {
+    sku: 'MENU-ARE-001',
+    name: 'Arepa con queso',
+    category: 'Comida rápida',
+    salePrice: 4500,
+    costPrice: 2000,
+    stock: 28,
+    minStock: 6,
+  },
+  {
+    sku: 'MENU-SAL-001',
+    name: 'Salchipapas',
+    category: 'Comida rápida',
+    salePrice: 12000,
+    costPrice: 4500,
+    stock: 22,
+    minStock: 5,
+  },
+  {
+    sku: 'MENU-PER-001',
+    name: 'Perro caliente sencillo',
+    category: 'Comida rápida',
+    salePrice: 8500,
+    costPrice: 3200,
+    stock: 30,
+    minStock: 8,
   },
 ];
 
@@ -238,14 +361,129 @@ export const demoCompositeProducts = [
       { ingredientSku: 'INS-LEC-001', quantity: 15, unit: 'g' as const },
     ],
   },
+  {
+    sku: 'COM-HAM-002',
+    name: 'Hamburguesa clásica',
+    category: 'Comida rápida',
+    description: 'Carne, queso, tomate y lechuga',
+    salePrice: 15500,
+    costPrice: 5800,
+    recipe: [
+      { ingredientSku: 'INS-CAR-001', quantity: 120, unit: 'g' as const },
+      { ingredientSku: 'INS-PAN-001', quantity: 1, unit: 'unit' as const },
+      { ingredientSku: 'INS-QUE-001', quantity: 20, unit: 'g' as const },
+      { ingredientSku: 'INS-TOM-001', quantity: 25, unit: 'g' as const },
+      { ingredientSku: 'INS-LEC-001', quantity: 15, unit: 'g' as const },
+    ],
+  },
+  {
+    sku: 'COM-HAM-003',
+    name: 'Hamburguesa doble carne',
+    category: 'Comida rápida',
+    description: 'Doble carne, doble queso',
+    salePrice: 22000,
+    costPrice: 9200,
+    recipe: [
+      { ingredientSku: 'INS-CAR-001', quantity: 240, unit: 'g' as const },
+      { ingredientSku: 'INS-PAN-001', quantity: 1, unit: 'unit' as const },
+      { ingredientSku: 'INS-QUE-001', quantity: 40, unit: 'g' as const },
+      { ingredientSku: 'INS-TOM-001', quantity: 20, unit: 'g' as const },
+      { ingredientSku: 'INS-LEC-001', quantity: 15, unit: 'g' as const },
+    ],
+  },
+  {
+    sku: 'COM-HAM-004',
+    name: 'Hamburguesa de pollo',
+    category: 'Comida rápida',
+    description: 'Pechuga de pollo, lechuga y tomate',
+    salePrice: 16500,
+    costPrice: 6100,
+    recipe: [
+      { ingredientSku: 'INS-POL-001', quantity: 130, unit: 'g' as const },
+      { ingredientSku: 'INS-PAN-001', quantity: 1, unit: 'unit' as const },
+      { ingredientSku: 'INS-LEC-001', quantity: 15, unit: 'g' as const },
+      { ingredientSku: 'INS-TOM-001', quantity: 20, unit: 'g' as const },
+      { ingredientSku: 'INS-SAL-001', quantity: 15, unit: 'ml' as const },
+    ],
+  },
+  {
+    sku: 'COM-CHU-001',
+    name: 'Chuzo de pollo',
+    category: 'Chuzos',
+    description: 'Brochetas de pollo con tomate, cebolla y salsa',
+    salePrice: 12500,
+    costPrice: 4200,
+    recipe: [
+      { ingredientSku: 'INS-POL-001', quantity: 150, unit: 'g' as const },
+      { ingredientSku: 'INS-PAL-001', quantity: 1, unit: 'unit' as const },
+      { ingredientSku: 'INS-TOM-001', quantity: 30, unit: 'g' as const },
+      { ingredientSku: 'INS-CEB-001', quantity: 20, unit: 'g' as const },
+      { ingredientSku: 'INS-SAL-001', quantity: 10, unit: 'ml' as const },
+    ],
+  },
+  {
+    sku: 'COM-CHU-002',
+    name: 'Chuzo de carne',
+    category: 'Chuzos',
+    description: 'Brochetas de res con tomate, cebolla y salsa BBQ',
+    salePrice: 14500,
+    costPrice: 5100,
+    recipe: [
+      { ingredientSku: 'INS-RES-001', quantity: 150, unit: 'g' as const },
+      { ingredientSku: 'INS-PAL-001', quantity: 1, unit: 'unit' as const },
+      { ingredientSku: 'INS-TOM-001', quantity: 30, unit: 'g' as const },
+      { ingredientSku: 'INS-CEB-001', quantity: 20, unit: 'g' as const },
+      { ingredientSku: 'INS-SAL-001', quantity: 10, unit: 'ml' as const },
+    ],
+  },
+  {
+    sku: 'COM-CHU-003',
+    name: 'Chuzo mixto',
+    category: 'Chuzos',
+    description: 'Pollo y carne en la misma brocheta',
+    salePrice: 15500,
+    costPrice: 5500,
+    recipe: [
+      { ingredientSku: 'INS-POL-001', quantity: 80, unit: 'g' as const },
+      { ingredientSku: 'INS-RES-001', quantity: 80, unit: 'g' as const },
+      { ingredientSku: 'INS-PAL-001', quantity: 1, unit: 'unit' as const },
+      { ingredientSku: 'INS-TOM-001', quantity: 25, unit: 'g' as const },
+      { ingredientSku: 'INS-CEB-001', quantity: 15, unit: 'g' as const },
+      { ingredientSku: 'INS-SAL-001', quantity: 10, unit: 'ml' as const },
+    ],
+  },
+  {
+    sku: 'COM-PAP-001',
+    name: 'Papas fritas porción',
+    category: 'Comida rápida',
+    description: 'Porción preparada desde insumo de papas',
+    salePrice: 6500,
+    costPrice: 1800,
+    recipe: [
+      { ingredientSku: 'INS-PAP-FRI', quantity: 200, unit: 'g' as const },
+      { ingredientSku: 'INS-SAL-001', quantity: 5, unit: 'ml' as const },
+    ],
+  },
 ];
 
-/** Subconjunto Cali: helado 1 bola + hamburguesa */
+/** Subconjunto Cali: menú reducido pero representativo */
 export const demoPortionProductsCali = demoPortionProducts.filter((p) => p.sku === 'POR-HEL-001');
-export const demoCompositeProductsCali = demoCompositeProducts;
-export const demoBulkProductsCali = demoBulkProducts;
-export const demoIngredientSimpleCali = demoIngredientSimple;
+export const demoCompositeProductsCali = demoCompositeProducts.filter((p) =>
+  ['COM-HAM-001', 'COM-HAM-002', 'COM-CHU-001', 'COM-CHU-002'].includes(p.sku),
+);
+export const demoBulkProductsCali = demoBulkProducts.filter((b) =>
+  [
+    'INS-HEL-001', 'INS-HEL-FRE', 'INS-HEL-CHO',
+    'INS-CAR-001', 'INS-POL-001', 'INS-RES-001',
+    'INS-PIN-001', 'INS-QUE-001', 'INS-LEC-001',
+    'INS-TOM-001', 'INS-CEB-001', 'INS-SAL-001',
+  ].includes(b.sku),
+);
+export const demoIngredientSimplesCali = demoIngredientSimples;
 export const demoIceCreamContainersCali = demoIceCreamContainers;
+export const demoMenuSimpleProductsCali = demoMenuSimpleProducts.filter((p) =>
+  ['MENU-PAP-001', 'MENU-LIM-001'].includes(p.sku),
+);
 
 export const demoCustomers = [
   { name: 'María González', email: 'maria@email.com', phone: '300-1234567', address: 'Calle 45 #12-34, Bogotá' },
@@ -386,6 +624,32 @@ export const demoPurchases = [
       { sku: 'INS-CAR-001', quantity: 3000, unitCost: 18 },
       { sku: 'INS-PIN-001', quantity: 2000, unitCost: 8 },
       { sku: 'INS-PAN-001', quantity: 40, unitCost: 800 },
+    ],
+  },
+  {
+    supplier: 'Comercial del Valle',
+    invoiceNumber: 'CDV-CHU01',
+    notes: 'Insumos chuzos y brochetas',
+    daysAgo: 5,
+    items: [
+      { sku: 'INS-POL-001', quantity: 2500, unitCost: 16 },
+      { sku: 'INS-RES-001', quantity: 2000, unitCost: 24 },
+      { sku: 'INS-PAL-001', quantity: 100, unitCost: 150 },
+      { sku: 'INS-TOM-001', quantity: 1500, unitCost: 5 },
+      { sku: 'INS-CEB-001', quantity: 1200, unitCost: 4 },
+    ],
+  },
+  {
+    supplier: 'Comercial del Valle',
+    invoiceNumber: 'CDV-HEL02',
+    notes: 'Reposición helados fresa, chocolate y menta',
+    daysAgo: 3,
+    items: [
+      { sku: 'INS-HEL-FRE', quantity: 3000, unitCost: 13 },
+      { sku: 'INS-HEL-CHO', quantity: 3000, unitCost: 14 },
+      { sku: 'INS-HEL-MEN', quantity: 2000, unitCost: 13 },
+      { sku: 'INS-GAL-001', quantity: 80, unitCost: 300 },
+      { sku: 'INS-VAS-001', quantity: 60, unitCost: 250 },
     ],
   },
 ];

@@ -18,11 +18,13 @@ import {
   demoCategories,
   demoProducts,
   demoBulkProducts,
-  demoIngredientSimple,
+  demoIngredientSimples,
+  demoMenuSimpleProducts,
   demoPortionProducts,
   demoCompositeProducts,
   demoBulkProductsCali,
-  demoIngredientSimpleCali,
+  demoIngredientSimplesCali,
+  demoMenuSimpleProductsCali,
   demoPortionProductsCali,
   demoCompositeProductsCali,
   demoIceCreamContainers,
@@ -226,7 +228,8 @@ export class SeedService implements OnModuleInit {
     const bulkList = caliSubset ? demoBulkProductsCali : demoBulkProducts;
     const portionList = caliSubset ? demoPortionProductsCali : demoPortionProducts;
     const compositeList = caliSubset ? demoCompositeProductsCali : demoCompositeProducts;
-    const panSimple = caliSubset ? demoIngredientSimpleCali : demoIngredientSimple;
+    const simpleIngredients = caliSubset ? demoIngredientSimplesCali : demoIngredientSimples;
+    const menuSimples = caliSubset ? demoMenuSimpleProductsCali : demoMenuSimpleProducts;
     const containers = caliSubset ? demoIceCreamContainersCali : demoIceCreamContainers;
 
     const skuToId = new Map<string, number>();
@@ -255,23 +258,46 @@ export class SeedService implements OnModuleInit {
       this.logger.log(`Menu demo: insumo ${bulk.sku} en tienda ${storeId}`);
     }
 
-    if (!skuToId.has(panSimple.sku)) {
+    for (const simple of simpleIngredients) {
+      if (skuToId.has(simple.sku)) continue;
       const saved = await this.productsRepo.save(
         this.productsRepo.create({
-          sku: panSimple.sku,
-          name: panSimple.name,
+          sku: simple.sku,
+          name: simple.name,
           productType: ProductType.SIMPLE,
           stockUnit: StockUnit.UNIT,
-          salePrice: panSimple.salePrice,
-          costPrice: panSimple.costPrice,
-          stock: panSimple.stock,
-          minStock: panSimple.minStock,
-          categoryId: categoryMap.get(panSimple.category),
+          salePrice: simple.salePrice,
+          costPrice: simple.costPrice,
+          stock: simple.stock,
+          minStock: simple.minStock,
+          categoryId: categoryMap.get(simple.category),
           storeId,
           active: true,
         }),
       );
-      skuToId.set(panSimple.sku, saved.id);
+      skuToId.set(simple.sku, saved.id);
+    }
+
+    for (const menuItem of menuSimples) {
+      if (skuToId.has(menuItem.sku)) continue;
+      const saved = await this.productsRepo.save(
+        this.productsRepo.create({
+          sku: menuItem.sku,
+          name: menuItem.name,
+          description: menuItem.description,
+          productType: ProductType.SIMPLE,
+          stockUnit: StockUnit.UNIT,
+          salePrice: menuItem.salePrice,
+          costPrice: menuItem.costPrice,
+          stock: menuItem.stock,
+          minStock: menuItem.minStock,
+          categoryId: categoryMap.get(menuItem.category),
+          storeId,
+          active: true,
+        }),
+      );
+      skuToId.set(menuItem.sku, saved.id);
+      this.logger.log(`Menu demo: producto ${menuItem.sku} en tienda ${storeId}`);
     }
 
     for (const container of containers) {
@@ -367,7 +393,11 @@ export class SeedService implements OnModuleInit {
           return {
             ingredientProductId,
             quantity: line.quantity,
-            unit: line.unit === 'unit' ? StockUnit.UNIT : StockUnit.G,
+            unit: line.unit === 'unit'
+              ? StockUnit.UNIT
+              : line.unit === 'ml'
+                ? StockUnit.ML
+                : StockUnit.G,
           };
         })
         .filter(Boolean);
