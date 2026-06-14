@@ -11,10 +11,18 @@ import { Customer } from '../customers/entities/customer.entity';
 import { Supplier } from '../suppliers/entities/supplier.entity';
 import { Purchase } from '../purchases/entities/purchase.entity';
 import { PurchaseItem } from '../purchases/entities/purchase-item.entity';
-import { UserRole } from '../common/enums';
+import { UserRole, ProductType, StockUnit } from '../common/enums';
 import {
   demoCategories,
   demoProducts,
+  demoBulkProducts,
+  demoIngredientSimple,
+  demoPortionProducts,
+  demoCompositeProducts,
+  demoBulkProductsCali,
+  demoIngredientSimpleCali,
+  demoPortionProductsCali,
+  demoCompositeProductsCali,
   demoCustomers,
   demoSuppliers,
   demoPurchases,
@@ -46,6 +54,7 @@ export class SeedService implements OnModuleInit {
     if (process.env.VERCEL) return;
     await this.seedSuperAdmin();
     await this.seedDemo();
+    await this.seedMenuProductsAllStores();
   }
 
   private async seedSuperAdmin() {
@@ -162,10 +171,14 @@ export class SeedService implements OnModuleInit {
           minStock: prod.minStock,
           categoryId: categoryMap.get(prod.category),
           storeId,
+          productType: ProductType.SIMPLE,
+          stockUnit: StockUnit.UNIT,
           active: true,
         }),
       );
     }
+
+    await this.seedMenuProducts(storeId, categoryMap, caliSubset);
 
     const customers = caliSubset ? demoCustomers.slice(0, 2) : demoCustomers;
     for (const cust of customers) {
@@ -174,6 +187,155 @@ export class SeedService implements OnModuleInit {
 
     for (const sup of demoSuppliers) {
       await this.suppliersRepo.save(this.suppliersRepo.create({ ...sup, storeId }));
+    }
+  }
+
+  /** Agrega helados y hamburguesa demo si aún no existen (también en tiendas ya creadas) */
+  async seedMenuProductsAllStores() {
+    const stores = await this.storesRepo.find({ where: { active: true } });
+    for (const store of stores) {
+      const categoryMap = await this.ensureCategoryMap(store.id);
+      const isCali = store.code === 'cali';
+      await this.seedMenuProducts(store.id, categoryMap, isCali);
+    }
+  }
+
+  private async ensureCategoryMap(storeId: number): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    for (const cat of demoCategories) {
+      let existing = await this.categoriesRepo.findOne({ where: { storeId, name: cat.name } });
+      if (!existing) {
+        existing = await this.categoriesRepo.save(
+          this.categoriesRepo.create({ ...cat, storeId }),
+        );
+      }
+      map.set(cat.name, existing.id);
+    }
+    return map;
+  }
+
+  private async seedMenuProducts(
+    storeId: number,
+    categoryMap: Map<string, number>,
+    caliSubset = false,
+  ) {
+    const bulkList = caliSubset ? demoBulkProductsCali : demoBulkProducts;
+    const portionList = caliSubset ? demoPortionProductsCali : demoPortionProducts;
+    const compositeList = caliSubset ? demoCompositeProductsCali : demoCompositeProducts;
+    const panSimple = caliSubset ? demoIngredientSimpleCali : demoIngredientSimple;
+
+    const skuToId = new Map<string, number>();
+    const existingProducts = await this.productsRepo.find({ where: { storeId } });
+    for (const p of existingProducts) skuToId.set(p.sku, p.id);
+
+    for (const bulk of bulkList) {
+      if (skuToId.has(bulk.sku)) continue;
+      const saved = await this.productsRepo.save(
+        this.productsRepo.create({
+          sku: bulk.sku,
+          name: bulk.name,
+          description: bulk.description,
+          productType: ProductType.BULK,
+          stockUnit: StockUnit.G,
+          salePrice: 0,
+          costPrice: bulk.costPrice,
+          stock: bulk.stock,
+          minStock: bulk.minStock,
+          categoryId: categoryMap.get(bulk.category),
+          storeId,
+          active: true,
+        }),
+      );
+      skuToId.set(bulk.sku, saved.id);
+      this.logger.log(`Menu demo: insumo ${bulk.sku} en tienda ${storeId}`);
+    }
+
+    if (!skuToId.has(panSimple.sku)) {
+      const saved = await this.productsRepo.save(
+        this.productsRepo.create({
+          sku: panSimple.sku,
+          name: panSimple.name,
+          productType: ProductType.SIMPLE,
+          stockUnit: StockUnit.UNIT,
+          salePrice: panSimple.salePrice,
+          costPrice: panSimple.costPrice,
+          stock: panSimple.stock,
+          minStock: panSimple.minStock,
+          categoryId: categoryMap.get(panSimple.category),
+          storeId,
+          active: true,
+        }),
+      );
+      skuToId.set(panSimple.sku, saved.id);
+    }
+
+    for (const portion of portionList) {
+      if (skuToId.has(portion.sku)) continue;
+      const baseId = skuToId.get(portion.baseSku);
+      if (!baseId) {
+        this.logger.warn(`Menu demo: falta insumo ${portion.baseSku} para ${portion.sku}`);
+        continue;
+      }
+      const saved = await this.productsRepo.save(
+        this.productsRepo.create({
+          sku: portion.sku,
+          name: portion.name,
+          description: portion.description,
+          productType: ProductType.PORTION,
+          stockUnit: StockUnit.G,
+          baseProductId: baseId,
+          portionSize: portion.portionSize,
+          salePrice: portion.salePrice,
+          costPrice: portion.costPrice,
+          stock: 0,
+          minStock: 0,
+          categoryId: categoryMap.get(portion.category),
+          storeId,
+          active: true,
+        }),
+      );
+      skuToId.set(portion.sku, saved.id);
+      this.logger.log(`Menu demo: porción ${portion.sku} en tienda ${storeId}`);
+    }
+
+    for (const composite of compositeList) {
+      if (skuToId.has(composite.sku)) continue;
+      const recipeLines = composite.recipe
+        .map((line) => {
+          const ingredientProductId = skuToId.get(line.ingredientSku);
+          if (!ingredientProductId) return null;
+          return {
+            ingredientProductId,
+            quantity: line.quantity,
+            unit: line.unit === 'unit' ? StockUnit.UNIT : StockUnit.G,
+          };
+        })
+        .filter(Boolean);
+
+      if (recipeLines.length !== composite.recipe.length) {
+        this.logger.warn(`Menu demo: receta incompleta para ${composite.sku}`);
+        continue;
+      }
+
+      const saved = await this.productsRepo.save(
+        this.productsRepo.create({
+          sku: composite.sku,
+          name: composite.name,
+          description: composite.description,
+          productType: ProductType.COMPOSITE,
+          stockUnit: StockUnit.UNIT,
+          salePrice: composite.salePrice,
+          costPrice: composite.costPrice,
+          stock: 0,
+          minStock: 0,
+          categoryId: categoryMap.get(composite.category),
+          storeId,
+          active: true,
+          recipe: recipeLines as { ingredientProductId: number; quantity: number; unit: StockUnit }[],
+        }),
+      );
+      skuToId.set(composite.sku, saved.id);
+      this.logger.log(`Menu demo: compuesto ${composite.sku} en tienda ${storeId}`);
     }
   }
 
@@ -234,6 +396,7 @@ export class SeedService implements OnModuleInit {
     await this.dataSource.query('DELETE FROM sales');
     await this.dataSource.query('DELETE FROM purchase_items');
     await this.dataSource.query('DELETE FROM purchases');
+    await this.dataSource.query('DELETE FROM product_recipes');
     await this.dataSource.query('DELETE FROM inventory_movements');
     await this.dataSource.query('DELETE FROM cash_sessions');
     await this.dataSource.query('DELETE FROM products');

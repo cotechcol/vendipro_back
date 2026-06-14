@@ -4,16 +4,16 @@ import { Repository, DataSource, Between } from 'typeorm';
 import { Sale } from './entities/sale.entity';
 import { SaleItem } from './entities/sale-item.entity';
 import { Product } from '../products/entities/product.entity';
-import { InventoryMovement } from '../inventory/entities/inventory-movement.entity';
 import { CashSession } from '../cash-sessions/entities/cash-session.entity';
 import { CreateSaleDto } from './dto/sale.dto';
-import { CashSessionStatus, InventoryMovementType, PaymentMethod } from '../common/enums';
+import { CashSessionStatus, PaymentMethod } from '../common/enums';
 import { calculateTaxFromIncludedPrice, generateTicketNumber } from '../common/utils/tax.util';
 import { SettingsService } from '../settings/settings.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
 import { dateRangeColombia } from '../common/utils/date.util';
+import { planStockDeductions, applyStockDeductions } from '../products/product-stock.util';
 
 @Injectable()
 export class SalesService {
@@ -80,36 +80,23 @@ export class SalesService {
       let profit = 0;
 
       for (const item of dto.items) {
-        const product = await manager.findOne(Product, { where: { id: item.productId, storeId } });
+        const product = await manager.findOne(Product, {
+          where: { id: item.productId, storeId },
+          relations: ['baseProduct', 'recipe', 'recipe.ingredient'],
+        });
         if (!product || !product.active) {
           throw new NotFoundException(`Producto ${item.productId} no encontrado`);
         }
-        if (product.stock < item.quantity) {
-          throw new BadRequestException(`Stock insuficiente para ${product.name}`);
-        }
+
+        const deductions = await planStockDeductions(manager, product, item.quantity, storeId);
+        const reference = `SALE-${Date.now()}-${product.id}`;
+        await applyStockDeductions(manager, deductions, storeId, userId, reference);
 
         const unitPrice = Number(product.salePrice);
         const unitCost = Number(product.costPrice);
         const subtotal = unitPrice * item.quantity;
         totalWithTax += subtotal;
         profit += (unitPrice - unitCost) * item.quantity;
-
-        const stockBefore = product.stock;
-        product.stock = stockBefore - item.quantity;
-        await manager.save(product);
-
-        await manager.save(
-          manager.create(InventoryMovement, {
-            storeId,
-            productId: product.id,
-            type: InventoryMovementType.SALE,
-            quantity: item.quantity,
-            stockBefore,
-            stockAfter: product.stock,
-            reference: `SALE-${Date.now()}`,
-            userId,
-          }),
-        );
 
         saleItems.push(
           manager.create(SaleItem, {

@@ -47,16 +47,17 @@ export class InventoryService {
       const product = await manager.findOne(Product, { where: { id: dto.productId, storeId } });
       if (!product) throw new NotFoundException('Producto no encontrado');
 
-      const stockBefore = product.stock;
+      const stockBefore = Number(product.stock);
+      const qty = Number(dto.quantity);
       let stockAfter: number;
 
       if (dto.type === InventoryMovementType.ADJUSTMENT_IN) {
-        stockAfter = stockBefore + dto.quantity;
+        stockAfter = Number((stockBefore + qty).toFixed(3));
       } else {
-        if (stockBefore < dto.quantity) {
+        if (stockBefore < qty) {
           throw new BadRequestException('Stock insuficiente para el ajuste');
         }
-        stockAfter = stockBefore - dto.quantity;
+        stockAfter = Number((stockBefore - qty).toFixed(3));
       }
 
       product.stock = stockAfter;

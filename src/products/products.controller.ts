@@ -38,6 +38,12 @@ export class ProductsController {
     return this.service.findLowStock(ctx);
   }
 
+  @Get('bulk')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  findBulk(@StoreCtx() ctx: StoreContext) {
+    return this.service.findBulkProducts(ctx);
+  }
+
   @Get(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.CASHIER)
   findOne(@Param('id', ParseIntPipe) id: number, @StoreCtx() ctx: StoreContext) {

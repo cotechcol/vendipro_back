@@ -1,7 +1,24 @@
 import {
   IsString, IsOptional, IsBoolean, IsNumber, IsInt, Min, MinLength,
+  IsEnum, IsArray, ValidateNested, ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ProductType, StockUnit } from '../../common/enums';
+
+export class RecipeItemDto {
+  @Type(() => Number)
+  @IsInt()
+  ingredientProductId: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  quantity: number;
+
+  @IsOptional()
+  @IsEnum(StockUnit)
+  unit?: StockUnit;
+}
 
 export class CreateProductDto {
   @IsString()
@@ -16,6 +33,26 @@ export class CreateProductDto {
   @IsString()
   description?: string;
 
+  @IsOptional()
+  @IsEnum(ProductType)
+  productType?: ProductType;
+
+  @IsOptional()
+  @IsEnum(StockUnit)
+  stockUnit?: StockUnit;
+
+  @ValidateIf((o) => o.productType === ProductType.PORTION)
+  @Type(() => Number)
+  @IsInt()
+  baseProductId?: number;
+
+  @ValidateIf((o) => o.productType === ProductType.PORTION)
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  portionSize?: number;
+
+  @ValidateIf((o) => o.productType !== ProductType.BULK)
   @Type(() => Number)
   @IsNumber()
   @Min(0)
@@ -28,13 +65,13 @@ export class CreateProductDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
+  @IsNumber()
   @Min(0)
   stock?: number;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
+  @IsNumber()
   @Min(0)
   minStock?: number;
 
@@ -42,6 +79,12 @@ export class CreateProductDto {
   @Type(() => Number)
   @IsInt()
   categoryId?: number;
+
+  @ValidateIf((o) => o.productType === ProductType.COMPOSITE)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RecipeItemDto)
+  recipe?: RecipeItemDto[];
 }
 
 export class UpdateProductDto {
@@ -58,6 +101,21 @@ export class UpdateProductDto {
   description?: string;
 
   @IsOptional()
+  @IsEnum(StockUnit)
+  stockUnit?: StockUnit;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  baseProductId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  portionSize?: number;
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
@@ -71,7 +129,7 @@ export class UpdateProductDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
+  @IsNumber()
   @Min(0)
   minStock?: number;
 
@@ -83,4 +141,10 @@ export class UpdateProductDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RecipeItemDto)
+  recipe?: RecipeItemDto[];
 }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Purchase } from './entities/purchase.entity';
@@ -8,7 +8,7 @@ import { Supplier } from '../suppliers/entities/supplier.entity';
 import { InventoryMovement } from '../inventory/entities/inventory-movement.entity';
 import { CreatePurchaseDto } from './dto/purchase.dto';
 import { PurchaseQueryDto } from './dto/purchase-query.dto';
-import { InventoryMovementType } from '../common/enums';
+import { InventoryMovementType, ProductType } from '../common/enums';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
 
@@ -66,13 +66,18 @@ export class PurchasesService {
         const subtotal = item.quantity * item.unitCost;
         total += subtotal;
 
-        const stockBefore = product.stock;
-        const stockAfter = stockBefore + item.quantity;
+        if (![ProductType.SIMPLE, ProductType.BULK].includes(product.productType)) {
+          throw new BadRequestException(`${product.name} no recibe compras directas`);
+        }
+
+        const qty = Number(item.quantity);
+        const stockBefore = Number(product.stock);
+        const stockAfter = Number((stockBefore + qty).toFixed(3));
         product.stock = stockAfter;
 
-        const currentStock = product.stock - item.quantity;
-        const weightedCost = currentStock > 0
-          ? (Number(product.costPrice) * currentStock + item.unitCost * item.quantity) / stockAfter
+        const currentStock = stockBefore;
+        const weightedCost = stockAfter > 0
+          ? (Number(product.costPrice) * currentStock + item.unitCost * qty) / stockAfter
           : item.unitCost;
         product.costPrice = Number(weightedCost.toFixed(2));
 
@@ -83,7 +88,7 @@ export class PurchasesService {
             storeId,
             productId: product.id,
             type: InventoryMovementType.PURCHASE,
-            quantity: item.quantity,
+            quantity: qty,
             stockBefore,
             stockAfter,
             reference: `PUR-${Date.now()}`,

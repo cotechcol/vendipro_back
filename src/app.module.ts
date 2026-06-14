@@ -22,6 +22,7 @@ import { Store } from './stores/entities/store.entity';
 import { User } from './users/entities/user.entity';
 import { Category } from './categories/entities/category.entity';
 import { Product } from './products/entities/product.entity';
+import { ProductRecipe } from './products/entities/product-recipe.entity';
 import { Customer } from './customers/entities/customer.entity';
 import { Supplier } from './suppliers/entities/supplier.entity';
 import { Setting } from './settings/entities/setting.entity';
@@ -46,7 +47,7 @@ import { SaleItem } from './sales/entities/sale-item.entity';
         password: config.get('DB_PASSWORD', ''),
         database: config.get('DB_DATABASE', 'pos_db'),
         entities: [
-          Store, User, Category, Product, Customer, Supplier, Setting,
+          Store, User, Category, Product, ProductRecipe, Customer, Supplier, Setting,
           InventoryMovement, Purchase, PurchaseItem, CashSession, Sale, SaleItem,
         ],
         synchronize: process.env.NODE_ENV !== 'production',

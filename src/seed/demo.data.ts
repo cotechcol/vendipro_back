@@ -5,6 +5,8 @@ export const demoCategories = [
   { name: 'Limpieza', description: 'Productos de limpieza del hogar' },
   { name: 'Panadería', description: 'Pan, galletas y pasteles' },
   { name: 'Abarrotes', description: 'Productos de despensa básica' },
+  { name: 'Heladería', description: 'Helados y postres' },
+  { name: 'Comida rápida', description: 'Hamburguesas y platos preparados' },
 ];
 
 export const demoProducts = [
@@ -30,6 +32,122 @@ export const demoProducts = [
   { sku: 'ABA-003', name: 'Aceite 1L', category: 'Abarrotes', salePrice: 10800, costPrice: 7800, stock: 22, minStock: 5 },
   { sku: 'ABA-004', name: 'Azúcar 1kg', category: 'Abarrotes', salePrice: 5800, costPrice: 4200, stock: 3, minStock: 5 },
 ];
+
+/** Insumos base en gramos (no se venden en POS) */
+export const demoBulkProducts = [
+  {
+    sku: 'INS-HEL-001',
+    name: 'Helado vainilla (insumo)',
+    category: 'Heladería',
+    description: 'Balde de helado — stock en gramos',
+    stock: 10000,
+    minStock: 500,
+    costPrice: 12,
+  },
+  {
+    sku: 'INS-PIN-001',
+    name: 'Piña calada (insumo)',
+    category: 'Comida rápida',
+    description: 'Piña en almíbar para hamburguesas',
+    stock: 5000,
+    minStock: 200,
+    costPrice: 8,
+  },
+  {
+    sku: 'INS-CAR-001',
+    name: 'Carne molida (insumo)',
+    category: 'Comida rápida',
+    stock: 8000,
+    minStock: 300,
+    costPrice: 18,
+  },
+  {
+    sku: 'INS-QUE-001',
+    name: 'Queso cheddar (insumo)',
+    category: 'Comida rápida',
+    stock: 3000,
+    minStock: 150,
+    costPrice: 22,
+  },
+  {
+    sku: 'INS-LEC-001',
+    name: 'Lechuga picada (insumo)',
+    category: 'Comida rápida',
+    stock: 2000,
+    minStock: 100,
+    costPrice: 6,
+  },
+];
+
+/** Pan para hamburguesa — unidad simple usada como ingrediente */
+export const demoIngredientSimple = {
+  sku: 'INS-PAN-001',
+  name: 'Pan hamburguesa',
+  category: 'Comida rápida',
+  salePrice: 0,
+  costPrice: 800,
+  stock: 80,
+  minStock: 10,
+};
+
+/** Porciones de venta ligadas a un insumo base */
+export const demoPortionProducts = [
+  {
+    sku: 'POR-HEL-001',
+    name: 'Helado 1 bola',
+    category: 'Heladería',
+    description: 'Una bola de helado vainilla (90 g)',
+    baseSku: 'INS-HEL-001',
+    portionSize: 90,
+    salePrice: 4500,
+    costPrice: 1080,
+  },
+  {
+    sku: 'POR-HEL-002',
+    name: 'Helado 2 bolas',
+    category: 'Heladería',
+    description: 'Dos bolas de helado vainilla (180 g)',
+    baseSku: 'INS-HEL-001',
+    portionSize: 180,
+    salePrice: 7500,
+    costPrice: 2160,
+  },
+  {
+    sku: 'POR-HEL-003',
+    name: 'Helado 3 bolas',
+    category: 'Heladería',
+    description: 'Tres bolas de helado vainilla (270 g)',
+    baseSku: 'INS-HEL-001',
+    portionSize: 270,
+    salePrice: 10500,
+    costPrice: 3240,
+  },
+];
+
+/** Productos compuestos con receta */
+export const demoCompositeProducts = [
+  {
+    sku: 'COM-HAM-001',
+    name: 'Hamburguesa hawaiana',
+    category: 'Comida rápida',
+    description: 'Carne, piña calada, queso y lechuga',
+    salePrice: 18500,
+    costPrice: 7200,
+    recipe: [
+      { ingredientSku: 'INS-CAR-001', quantity: 120, unit: 'g' as const },
+      { ingredientSku: 'INS-PIN-001', quantity: 40, unit: 'g' as const },
+      { ingredientSku: 'INS-PAN-001', quantity: 1, unit: 'unit' as const },
+      { ingredientSku: 'INS-QUE-001', quantity: 25, unit: 'g' as const },
+      { ingredientSku: 'INS-LEC-001', quantity: 15, unit: 'g' as const },
+    ],
+  },
+];
+
+/** Subconjunto Cali: helado 1 bola + hamburguesa */
+export const demoPortionProductsCali = demoPortionProducts.filter((p) => p.sku === 'POR-HEL-001');
+export const demoCompositeProductsCali = demoCompositeProducts;
+export const demoBulkProductsCali = demoBulkProducts;
+export const demoIngredientSimpleCali = demoIngredientSimple;
 
 export const demoCustomers = [
   { name: 'María González', email: 'maria@email.com', phone: '300-1234567', address: 'Calle 45 #12-34, Bogotá' },
@@ -152,6 +270,24 @@ export const demoPurchases = [
     items: [
       { sku: 'LAC-003', quantity: 8, unitCost: 14500 },
       { sku: 'ABA-004', quantity: 12, unitCost: 4200 },
+    ],
+  },
+  {
+    supplier: 'Comercial del Valle',
+    invoiceNumber: 'CDV-HEL01',
+    notes: 'Insumo helado vainilla (5 kg)',
+    daysAgo: 4,
+    items: [{ sku: 'INS-HEL-001', quantity: 5000, unitCost: 12 }],
+  },
+  {
+    supplier: 'Comercial del Valle',
+    invoiceNumber: 'CDV-HAM01',
+    notes: 'Insumos hamburguesa hawaiana',
+    daysAgo: 6,
+    items: [
+      { sku: 'INS-CAR-001', quantity: 3000, unitCost: 18 },
+      { sku: 'INS-PIN-001', quantity: 2000, unitCost: 8 },
+      { sku: 'INS-PAN-001', quantity: 40, unitCost: 800 },
     ],
   },
 ];

@@ -21,3 +21,16 @@ export enum InventoryMovementType {
   ADJUSTMENT_IN = 'adjustment_in',
   ADJUSTMENT_OUT = 'adjustment_out',
 }
+
+export enum ProductType {
+  SIMPLE = 'simple',
+  BULK = 'bulk',
+  PORTION = 'portion',
+  COMPOSITE = 'composite',
+}
+
+export enum StockUnit {
+  UNIT = 'unit',
+  G = 'g',
+  ML = 'ml',
+}

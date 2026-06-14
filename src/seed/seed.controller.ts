@@ -16,4 +16,10 @@ export class SeedController {
     await this.seedService.seedDemo(force === 'true');
     return { message: 'Datos demo cargados correctamente' };
   }
+
+  @Post('menu')
+  async seedMenu() {
+    await this.seedService.seedMenuProductsAllStores();
+    return { message: 'Productos de menú demo (helados y hamburguesa) cargados' };
+  }
 }

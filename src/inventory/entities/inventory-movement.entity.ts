@@ -33,13 +33,13 @@ export class InventoryMovement {
   @Column({ type: 'enum', enum: InventoryMovementType })
   type: InventoryMovementType;
 
-  @Column({ type: 'int' })
+  @Column({ type: 'decimal', precision: 12, scale: 3 })
   quantity: number;
 
-  @Column({ name: 'stock_before', type: 'int' })
+  @Column({ name: 'stock_before', type: 'decimal', precision: 12, scale: 3 })
   stockBefore: number;
 
-  @Column({ name: 'stock_after', type: 'int' })
+  @Column({ name: 'stock_after', type: 'decimal', precision: 12, scale: 3 })
   stockAfter: number;
 
   @Column({ type: 'text', nullable: true })
