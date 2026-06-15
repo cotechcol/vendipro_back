@@ -9,11 +9,13 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { runStoreMigration } from './database/store-migration';
 import { runProductMigration } from './database/product-migration';
+import { runSupplierMigration } from './database/supplier-migration';
 
 async function runMigrations(): Promise<void> {
   try {
     if (!process.env.VERCEL) await runStoreMigration();
     await runProductMigration();
+    await runSupplierMigration();
   } catch (err) {
     console.error('[migration] Error aplicando migraciones:', err);
   }

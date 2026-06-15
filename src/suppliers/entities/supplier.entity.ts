@@ -23,20 +23,23 @@ export class Supplier {
   @JoinColumn({ name: 'store_id' })
   store: Store;
 
-  @Column({ length: 150 })
-  name: string;
-
   @Column({ length: 150, nullable: true })
-  email: string;
+  name: string | null;
 
   @Column({ length: 20, nullable: true })
-  phone: string;
+  nit: string | null;
+
+  @Column({ length: 150, nullable: true })
+  email: string | null;
+
+  @Column({ length: 20, nullable: true })
+  phone: string | null;
 
   @Column({ type: 'text', nullable: true })
-  address: string;
+  address: string | null;
 
   @Column({ length: 100, nullable: true })
-  contact: string;
+  contact: string | null;
 
   @Column({ default: true })
   active: boolean;
