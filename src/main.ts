@@ -12,8 +12,9 @@ import { runProductMigration } from './database/product-migration';
 import { runSupplierMigration } from './database/supplier-migration';
 
 async function runMigrations(): Promise<void> {
+  if (process.env.VERCEL) return;
   try {
-    if (!process.env.VERCEL) await runStoreMigration();
+    await runStoreMigration();
     await runProductMigration();
     await runSupplierMigration();
   } catch (err) {

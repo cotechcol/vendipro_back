@@ -23,6 +23,15 @@ export async function runSupplierMigration(): Promise<void> {
   });
 
   try {
+    const [tables] = await connection.query<mysql.RowDataPacket[]>(
+      `SELECT 1 FROM information_schema.TABLES
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'suppliers'`,
+    );
+    if (!tables.length) {
+      console.log('[supplier-migration] Tabla suppliers no existe; omitiendo.');
+      return;
+    }
+
     if (!(await columnExists(connection, 'suppliers', 'nit'))) {
       await connection.query(`
         ALTER TABLE suppliers
