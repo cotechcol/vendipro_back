@@ -244,14 +244,17 @@ async function sellableForPortionWithOptions(
     }
 
     if (group.kind === OptionGroupKind.CONTAINER) {
-      let minContainer = Infinity;
+      let maxContainer = 0;
       for (const option of group.options ?? []) {
         const ingredient = option.ingredient
           ?? await manager.findOne(Product, { where: { id: option.ingredientProductId } });
-        if (!ingredient || num(option.quantity) <= 0) return 0;
-        minContainer = Math.min(minContainer, Math.floor(num(ingredient.stock) / num(option.quantity)));
+        if (!ingredient || num(option.quantity) <= 0) continue;
+        maxContainer = Math.max(
+          maxContainer,
+          Math.floor(num(ingredient.stock) / num(option.quantity)),
+        );
       }
-      containerUnits = minContainer === Infinity ? 0 : minContainer;
+      containerUnits = maxContainer;
     }
   }
 
