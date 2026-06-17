@@ -13,7 +13,7 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
 import { dateRangeColombia } from '../common/utils/date.util';
-import { planStockDeductions, applyStockDeductions } from '../products/product-stock.util';
+import { planStockDeductions, applyStockDeductions, calculateSaleUnitCost } from '../products/product-stock.util';
 
 @Injectable()
 export class SalesService {
@@ -106,7 +106,7 @@ export class SalesService {
         await applyStockDeductions(manager, deductions, storeId, userId, reference);
 
         const unitPrice = Number(product.salePrice);
-        const unitCost = Number(product.costPrice);
+        const unitCost = calculateSaleUnitCost(product, item.selectedOptionIds);
         const subtotal = unitPrice * item.quantity;
         totalWithTax += subtotal;
         profit += (unitPrice - unitCost) * item.quantity;

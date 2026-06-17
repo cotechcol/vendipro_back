@@ -38,6 +38,12 @@ export class ProductOptionDto {
   @IsOptional()
   @IsEnum(StockUnit)
   unit?: StockUnit;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  unitCost?: number;
 }
 
 export class ProductOptionGroupDto {

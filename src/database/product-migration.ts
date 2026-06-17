@@ -194,6 +194,23 @@ export async function runProductMigration(): Promise<void> {
       }
     }
 
+    if (await tableExists(connection, 'product_options')) {
+      if (!(await columnExists(connection, 'product_options', 'unit_cost'))) {
+        await connection.query(`
+          ALTER TABLE product_options
+          ADD COLUMN unit_cost DECIMAL(12,2) NOT NULL DEFAULT 0
+          AFTER unit
+        `);
+        await connection.query(`
+          UPDATE product_options po
+          INNER JOIN products p ON p.id = po.ingredient_product_id
+          SET po.unit_cost = ROUND(p.cost_price * po.quantity, 2)
+          WHERE po.unit_cost = 0 AND p.cost_price > 0
+        `);
+        console.log('[product-migration] Columna product_options.unit_cost agregada');
+      }
+    }
+
     console.log('[product-migration] Esquema de productos actualizado');
   } finally {
     await connection.end();

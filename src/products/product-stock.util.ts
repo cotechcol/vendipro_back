@@ -316,3 +316,35 @@ export async function getSellableUnits(
 export function isLowStock(product: Product): boolean {
   return num(product.stock) <= num(product.minStock);
 }
+
+function resolveOptionUnitCost(option: ProductOptionGroup['options'][0]): number {
+  const stored = num(option.unitCost);
+  if (stored > 0) return stored;
+  const ingredient = option.ingredient;
+  if (!ingredient) return 0;
+  return Number((num(ingredient.costPrice) * num(option.quantity)).toFixed(2));
+}
+
+/** Costo real de una venta según sabores y envase elegidos */
+export function calculateSaleUnitCost(
+  product: Product,
+  selectedOptionIds?: number[],
+): number {
+  if (!selectedOptionIds?.length || !product.optionGroups?.length) {
+    return num(product.costPrice);
+  }
+
+  const optionMap = new Map<number, ProductOptionGroup['options'][0]>();
+  for (const group of product.optionGroups) {
+    for (const option of group.options ?? []) {
+      optionMap.set(option.id, option);
+    }
+  }
+
+  let total = 0;
+  for (const optionId of selectedOptionIds) {
+    const option = optionMap.get(optionId);
+    if (option) total += resolveOptionUnitCost(option);
+  }
+  return Number(total.toFixed(2));
+}

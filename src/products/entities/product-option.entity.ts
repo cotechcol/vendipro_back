@@ -36,4 +36,8 @@ export class ProductOption {
 
   @Column({ type: 'enum', enum: StockUnit, default: StockUnit.G })
   unit: StockUnit;
+
+  /** Costo para el negocio por usar esta opción (1 bola o 1 envase) */
+  @Column({ name: 'unit_cost', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  unitCost: number;
 }
