@@ -2,7 +2,7 @@ import {
   Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, EntityManager } from 'typeorm';
+import { Repository, DataSource, EntityManager, In } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { ProductRecipe } from './entities/product-recipe.entity';
 import { ProductOptionGroup } from './entities/product-option-group.entity';
@@ -245,10 +245,7 @@ export class ProductsService {
   }
 
   async update(id: number, dto: UpdateProductDto, ctx: StoreContext) {
-    const existing = await this.repo.findOne({
-      where: { id },
-      relations: ['recipe', 'optionGroups', 'optionGroups.options'],
-    });
+    const existing = await this.repo.findOne({ where: { id } });
     if (!existing) throw new NotFoundException('Producto no encontrado');
     if (existing.storeId !== this.scopeStore(ctx)) {
       throw new ForbiddenException('Producto no pertenece a esta tienda');
@@ -273,24 +270,29 @@ export class ProductsService {
       const { recipe, optionGroups, ...scalarFields } = dto;
       const hasOptions = optionGroups?.length;
 
-      if (hasOptions) {
-        existing.baseProductId = null;
-        existing.scoopCount = dto.scoopCount ?? existing.scoopCount;
-      }
-
       if (optionGroups && existing.productType === ProductType.PORTION) {
-        await manager.delete(ProductOptionGroup, { productId: existing.id });
+        const oldGroups = await manager.find(ProductOptionGroup, {
+          where: { productId: existing.id },
+          select: ['id'],
+        });
+        if (oldGroups.length) {
+          await manager.delete(ProductOption, { groupId: In(oldGroups.map((g) => g.id)) });
+          await manager.delete(ProductOptionGroup, { productId: existing.id });
+        }
       }
 
       if (recipe && existing.productType === ProductType.COMPOSITE) {
         await manager.delete(ProductRecipe, { productId: existing.id });
       }
 
-      Object.assign(existing, scalarFields);
-      // Evitar que cascade intente poner product_id = NULL en grupos/receta cargados
-      existing.optionGroups = undefined!;
-      existing.recipe = undefined!;
-      await manager.save(Product, existing);
+      const productPatch: Record<string, unknown> = { ...scalarFields };
+      if (hasOptions) {
+        productPatch.baseProductId = null;
+        productPatch.scoopCount = dto.scoopCount ?? existing.scoopCount;
+      }
+      if (Object.keys(productPatch).length > 0) {
+        await manager.update(Product, { id: existing.id }, productPatch);
+      }
 
       if (recipe && existing.productType === ProductType.COMPOSITE) {
         for (const line of recipe) {

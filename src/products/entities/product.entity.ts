@@ -87,10 +87,10 @@ export class Product {
   @Column({ name: 'visible_in_pos', default: true })
   visibleInPos: boolean;
 
-  @OneToMany(() => ProductRecipe, (recipe) => recipe.product, { cascade: true })
+  @OneToMany(() => ProductRecipe, (recipe) => recipe.product)
   recipe: ProductRecipe[];
 
-  @OneToMany(() => ProductOptionGroup, (group) => group.product, { cascade: true })
+  @OneToMany(() => ProductOptionGroup, (group) => group.product)
   optionGroups: ProductOptionGroup[];
 
   @OneToMany(() => InventoryMovement, (movement) => movement.product)
