@@ -351,13 +351,17 @@ export class ProductsService {
         const unit = opt.unit
           ?? (groupDto.kind === OptionGroupKind.FLAVOR ? portionUnit : StockUnit.UNIT);
 
-        let unitCost = opt.unitCost ?? 0;
-        if (!unitCost) {
+        let unitCost = opt.unitCost !== undefined && opt.unitCost !== null
+          ? Number(opt.unitCost)
+          : null;
+        if (unitCost === null) {
           const ingredient = await manager.findOne(Product, {
             where: { id: opt.ingredientProductId, storeId },
           });
           if (ingredient) {
             unitCost = Number((Number(ingredient.costPrice) * Number(quantity)).toFixed(2));
+          } else {
+            unitCost = 0;
           }
         }
 
