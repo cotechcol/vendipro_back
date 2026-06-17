@@ -202,7 +202,11 @@ export class ProductsService {
         ...dto,
         storeId,
         productType,
-        stockUnit: dto.stockUnit ?? (productType === ProductType.BULK ? StockUnit.G : StockUnit.UNIT),
+        stockUnit: dto.stockUnit ?? (
+          productType === ProductType.BULK ? StockUnit.G
+            : productType === ProductType.PORTION ? StockUnit.G
+              : StockUnit.UNIT
+        ),
         stock: productType === ProductType.PORTION || productType === ProductType.COMPOSITE ? 0 : (dto.stock ?? 0),
         salePrice: productType === ProductType.BULK ? 0 : dto.salePrice,
         baseProductId: hasOptions ? null : (dto.baseProductId ?? null),
@@ -225,7 +229,15 @@ export class ProductsService {
       }
 
       if (hasOptions && dto.optionGroups) {
-        await this.saveOptionGroups(manager, saved.id, dto.optionGroups, dto.portionSize!, dto.scoopCount!, storeId);
+        await this.saveOptionGroups(
+          manager,
+          saved.id,
+          dto.optionGroups,
+          dto.portionSize!,
+          dto.scoopCount!,
+          storeId,
+          dto.stockUnit === StockUnit.ML ? StockUnit.ML : StockUnit.G,
+        );
       }
     });
 
@@ -258,17 +270,30 @@ export class ProductsService {
     }
 
     await this.dataSource.transaction(async (manager) => {
-      const hasOptions = dto.optionGroups?.length;
+      const { recipe, optionGroups, ...scalarFields } = dto;
+      const hasOptions = optionGroups?.length;
+
       if (hasOptions) {
         existing.baseProductId = null;
         existing.scoopCount = dto.scoopCount ?? existing.scoopCount;
       }
-      Object.assign(existing, dto);
+
+      if (optionGroups && existing.productType === ProductType.PORTION) {
+        await manager.delete(ProductOptionGroup, { productId: existing.id });
+      }
+
+      if (recipe && existing.productType === ProductType.COMPOSITE) {
+        await manager.delete(ProductRecipe, { productId: existing.id });
+      }
+
+      Object.assign(existing, scalarFields);
+      // Evitar que cascade intente poner product_id = NULL en grupos/receta cargados
+      existing.optionGroups = undefined!;
+      existing.recipe = undefined!;
       await manager.save(Product, existing);
 
-      if (dto.recipe && existing.productType === ProductType.COMPOSITE) {
-        await manager.delete(ProductRecipe, { productId: existing.id });
-        for (const line of dto.recipe) {
+      if (recipe && existing.productType === ProductType.COMPOSITE) {
+        for (const line of recipe) {
           await this.validateIngredient(manager, line.ingredientProductId, existing.storeId);
           await manager.save(manager.create(ProductRecipe, {
             productId: existing.id,
@@ -279,15 +304,16 @@ export class ProductsService {
         }
       }
 
-      if (dto.optionGroups && existing.productType === ProductType.PORTION) {
-        await manager.delete(ProductOptionGroup, { productId: existing.id });
+      if (optionGroups && existing.productType === ProductType.PORTION) {
+        const portionUnit = dto.stockUnit ?? existing.stockUnit;
         await this.saveOptionGroups(
           manager,
           existing.id,
-          dto.optionGroups,
+          optionGroups,
           dto.portionSize ?? Number(existing.portionSize),
           dto.scoopCount ?? existing.scoopCount ?? 1,
           existing.storeId,
+          portionUnit === StockUnit.ML ? StockUnit.ML : StockUnit.G,
         );
       }
     });
@@ -302,6 +328,7 @@ export class ProductsService {
     portionSize: number,
     scoopCount: number,
     storeId: number,
+    portionUnit: StockUnit = StockUnit.G,
   ) {
     let sortOrder = 0;
     for (const groupDto of groups ?? []) {
@@ -320,7 +347,7 @@ export class ProductsService {
         const quantity = opt.quantity
           ?? (groupDto.kind === OptionGroupKind.FLAVOR ? portionSize : 1);
         const unit = opt.unit
-          ?? (groupDto.kind === OptionGroupKind.FLAVOR ? StockUnit.G : StockUnit.UNIT);
+          ?? (groupDto.kind === OptionGroupKind.FLAVOR ? portionUnit : StockUnit.UNIT);
 
         let unitCost = opt.unitCost ?? 0;
         if (!unitCost) {
