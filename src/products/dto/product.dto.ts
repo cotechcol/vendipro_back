@@ -131,6 +131,10 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => RecipeItemDto)
   recipe?: RecipeItemDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  visibleInPos?: boolean;
 }
 
 export class UpdateProductDto {
@@ -199,6 +203,10 @@ export class UpdateProductDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  visibleInPos?: boolean;
 
   @IsOptional()
   @IsArray()

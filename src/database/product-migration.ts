@@ -180,6 +180,20 @@ export async function runProductMigration(): Promise<void> {
       `);
     }
 
+    if (await tableExists(connection, 'products')) {
+      if (!(await columnExists(connection, 'products', 'visible_in_pos'))) {
+        await connection.query(`
+          ALTER TABLE products
+          ADD COLUMN visible_in_pos TINYINT(1) NOT NULL DEFAULT 1
+          AFTER active
+        `);
+        await connection.query(`
+          UPDATE products SET visible_in_pos = 0 WHERE product_type = 'bulk'
+        `);
+        console.log('[product-migration] Columna products.visible_in_pos agregada');
+      }
+    }
+
     console.log('[product-migration] Esquema de productos actualizado');
   } finally {
     await connection.end();

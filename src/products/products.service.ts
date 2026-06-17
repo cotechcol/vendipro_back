@@ -101,6 +101,7 @@ export class ProductsService {
       .leftJoinAndSelect('options.ingredient', 'optionIngredient')
       .where('p.storeId = :storeId', { storeId })
       .andWhere('p.active = true')
+      .andWhere('p.visibleInPos = true')
       .andWhere('p.productType != :bulk', { bulk: ProductType.BULK })
       .orderBy('p.name', 'ASC');
 
@@ -108,15 +109,13 @@ export class ProductsService {
     if (categoryId) qb.andWhere('p.categoryId = :categoryId', { categoryId });
 
     const products = await qb.getMany();
-    const available: Product[] = [];
+    const result: Product[] = [];
     for (const p of products) {
       const sellable = await getSellableUnits(this.repo.manager, p);
-      if (sellable > 0) {
-        (p as Product & { sellableUnits: number }).sellableUnits = sellable;
-        available.push(p);
-      }
+      (p as Product & { sellableUnits: number }).sellableUnits = sellable;
+      result.push(p);
     }
-    return available;
+    return result;
   }
 
   async findLowStock(ctx: StoreContext) {
@@ -208,6 +207,7 @@ export class ProductsService {
         salePrice: productType === ProductType.BULK ? 0 : dto.salePrice,
         baseProductId: hasOptions ? null : (dto.baseProductId ?? null),
         scoopCount: hasOptions ? dto.scoopCount : null,
+        visibleInPos: dto.visibleInPos ?? productType !== ProductType.BULK,
       });
       const saved = await manager.save(product);
       savedId = saved.id;

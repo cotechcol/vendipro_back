@@ -83,6 +83,10 @@ export class Product {
   @Column({ default: true })
   active: boolean;
 
+  /** Si aparece en el punto de venta (insumos bulk suelen ir en false) */
+  @Column({ name: 'visible_in_pos', default: true })
+  visibleInPos: boolean;
+
   @OneToMany(() => ProductRecipe, (recipe) => recipe.product, { cascade: true })
   recipe: ProductRecipe[];
 
