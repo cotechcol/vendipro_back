@@ -1,13 +1,14 @@
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
 import { config } from 'dotenv';
 import { applyProcessTimezone } from './common/utils/timezone.util';
-
-config();
-applyProcessTimezone();
-
 import { runStoreMigration } from './database/store-migration';
 import { runProductMigration } from './database/product-migration';
 import { runSupplierMigration } from './database/supplier-migration';
-import { createNestApp } from './app-bootstrap';
+import { applyAppConfig } from './app-bootstrap';
+
+config();
+applyProcessTimezone();
 
 async function runMigrations(): Promise<void> {
   if (process.env.VERCEL) return;
@@ -23,7 +24,14 @@ async function runMigrations(): Promise<void> {
 async function bootstrap(): Promise<void> {
   await runMigrations();
 
-  const app = await createNestApp();
+  const app = await NestFactory.create(AppModule, {
+    logger:
+      process.env.NODE_ENV === 'production'
+        ? ['error', 'warn']
+        : ['log', 'error', 'warn'],
+  });
+
+  applyAppConfig(app);
   await app.listen(process.env.PORT ?? 3000);
 }
 

@@ -1,8 +1,4 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { ExpressAdapter } from '@nestjs/platform-express';
-import type { Express } from 'express';
-import { AppModule } from './app.module';
 
 function isOriginAllowed(origin: string | undefined): boolean {
   if (!origin) return true;
@@ -57,17 +53,4 @@ export function applyAppConfig(app: INestApplication): void {
       transformOptions: { enableImplicitConversion: true },
     }),
   );
-}
-
-export async function createNestApp(expressApp?: Express): Promise<INestApplication> {
-  const app = expressApp
-    ? await NestFactory.create(AppModule, new ExpressAdapter(expressApp), {
-        logger: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['log', 'error', 'warn'],
-      })
-    : await NestFactory.create(AppModule, {
-        logger: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['log', 'error', 'warn'],
-      });
-
-  applyAppConfig(app);
-  return app;
 }
