@@ -181,6 +181,15 @@ export async function runProductMigration(): Promise<void> {
     }
 
     if (await tableExists(connection, 'products')) {
+      if (!(await columnExists(connection, 'products', 'image_key'))) {
+        await connection.query(`
+          ALTER TABLE products
+          ADD COLUMN image_key VARCHAR(500) NULL
+          AFTER description
+        `);
+        console.log('[product-migration] Columna image_key agregada');
+      }
+
       if (!(await columnExists(connection, 'products', 'visible_in_pos'))) {
         await connection.query(`
           ALTER TABLE products

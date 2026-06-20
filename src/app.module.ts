@@ -18,6 +18,7 @@ import { CashSessionsModule } from './cash-sessions/cash-sessions.module';
 import { SalesModule } from './sales/sales.module';
 import { ReportsModule } from './reports/reports.module';
 import { SeedModule } from './seed/seed.module';
+import { StorageModule } from './storage/storage.module';
 import { Store } from './stores/entities/store.entity';
 import { User } from './users/entities/user.entity';
 import { Category } from './categories/entities/category.entity';
@@ -38,6 +39,7 @@ import { SaleItem } from './sales/entities/sale-item.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    StorageModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

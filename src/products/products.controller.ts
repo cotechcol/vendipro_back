@@ -1,6 +1,9 @@
 import {
   Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, ParseIntPipe,
+  UploadedFile, UseInterceptors, BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { ProductsService } from './products.service';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -10,6 +13,22 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums';
 import { StoreCtx } from '../common/decorators/store-context.decorator';
 import type { StoreContext } from '../common/utils/store-context.util';
+
+const IMAGE_UPLOAD = {
+  storage: memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (
+    _req: unknown,
+    file: Express.Multer.File,
+    cb: (error: Error | null, acceptFile: boolean) => void,
+  ) => {
+    if (!/^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)) {
+      cb(new BadRequestException('Solo imágenes JPG, PNG, WEBP o GIF') as unknown as Error, false);
+      return;
+    }
+    cb(null, true);
+  },
+};
 
 @Controller('products')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -42,6 +61,29 @@ export class ProductsController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   findBulk(@StoreCtx() ctx: StoreContext) {
     return this.service.findBulkProducts(ctx);
+  }
+
+  @Get(':id/image-url')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.CASHIER)
+  getImageUrl(@Param('id', ParseIntPipe) id: number, @StoreCtx() ctx: StoreContext) {
+    return this.service.getImageUrl(id, ctx);
+  }
+
+  @Post(':id/image')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('image', IMAGE_UPLOAD))
+  uploadImage(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: Express.Multer.File,
+    @StoreCtx() ctx: StoreContext,
+  ) {
+    return this.service.uploadImage(id, file, ctx);
+  }
+
+  @Delete(':id/image')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  removeImage(@Param('id', ParseIntPipe) id: number, @StoreCtx() ctx: StoreContext) {
+    return this.service.removeImage(id, ctx);
   }
 
   @Get(':id')

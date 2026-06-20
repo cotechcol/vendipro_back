@@ -13,6 +13,7 @@ import { OptionGroupKind, ProductType, StockUnit } from '../common/enums';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
 import { getSellableUnits, isLowStock } from './product-stock.util';
+import { StorageService } from '../storage/storage.service';
 
 const PRODUCT_RELATIONS = [
   'category',
@@ -30,18 +31,24 @@ export class ProductsService {
     @InjectRepository(Product) private repo: Repository<Product>,
     @InjectRepository(ProductRecipe) private recipeRepo: Repository<ProductRecipe>,
     private dataSource: DataSource,
+    private storage: StorageService,
   ) {}
 
-  private scopeStore(ctx: StoreContext): number {
-    return requireStoreId(ctx);
-  }
-
-  private enrichProduct(product: Product, sellableUnits?: number) {
-    return {
-      ...product,
+  private async enrichProduct(product: Product, sellableUnits?: number) {
+    const { imageKey, ...rest } = product;
+    const enriched: Record<string, unknown> = {
+      ...rest,
       sellableUnits: sellableUnits ?? undefined,
       lowStock: isLowStock(product),
     };
+    if (imageKey && this.storage.isConfigured()) {
+      enriched.imageUrl = await this.storage.getSignedUrl(imageKey);
+    }
+    return enriched;
+  }
+
+  private scopeStore(ctx: StoreContext): number {
+    return requireStoreId(ctx);
   }
 
   async findAll(
@@ -109,11 +116,11 @@ export class ProductsService {
     if (categoryId) qb.andWhere('p.categoryId = :categoryId', { categoryId });
 
     const products = await qb.getMany();
-    const result: Product[] = [];
+    const result = [];
     for (const p of products) {
       const sellable = await getSellableUnits(this.repo.manager, p);
       (p as Product & { sellableUnits: number }).sellableUnits = sellable;
-      result.push(p);
+      result.push(await this.enrichProduct(p, sellable));
     }
     return result;
   }
@@ -393,7 +400,59 @@ export class ProductsService {
     if (product.storeId !== this.scopeStore(ctx)) {
       throw new ForbiddenException('Producto no pertenece a esta tienda');
     }
+    if (product.imageKey) {
+      await this.storage.deleteObject(product.imageKey);
+    }
     await this.repo.remove(product);
     return { message: 'Producto eliminado' };
+  }
+
+  async uploadImage(id: number, file: Express.Multer.File, ctx: StoreContext) {
+    if (!file) throw new BadRequestException('Selecciona una imagen');
+    const product = await this.repo.findOne({ where: { id } });
+    if (!product) throw new NotFoundException('Producto no encontrado');
+    const storeId = this.scopeStore(ctx);
+    if (product.storeId !== storeId) {
+      throw new ForbiddenException('Producto no pertenece a esta tienda');
+    }
+
+    const previousKey = product.imageKey;
+    const imageKey = await this.storage.uploadProductImage(storeId, id, file);
+    product.imageKey = imageKey;
+    await this.repo.save(product);
+
+    if (previousKey && previousKey !== imageKey) {
+      await this.storage.deleteObject(previousKey);
+    }
+
+    const imageUrl = await this.storage.getSignedUrl(imageKey);
+    return { imageUrl };
+  }
+
+  async getImageUrl(id: number, ctx: StoreContext) {
+    const product = await this.repo.findOne({ where: { id } });
+    if (!product) throw new NotFoundException('Producto no encontrado');
+    if (product.storeId !== this.scopeStore(ctx)) {
+      throw new ForbiddenException('Producto no pertenece a esta tienda');
+    }
+    if (!product.imageKey) {
+      throw new NotFoundException('Este producto no tiene imagen');
+    }
+    const imageUrl = await this.storage.getSignedUrl(product.imageKey);
+    return { imageUrl };
+  }
+
+  async removeImage(id: number, ctx: StoreContext) {
+    const product = await this.repo.findOne({ where: { id } });
+    if (!product) throw new NotFoundException('Producto no encontrado');
+    if (product.storeId !== this.scopeStore(ctx)) {
+      throw new ForbiddenException('Producto no pertenece a esta tienda');
+    }
+    if (product.imageKey) {
+      await this.storage.deleteObject(product.imageKey);
+      product.imageKey = null;
+      await this.repo.save(product);
+    }
+    return { message: 'Imagen eliminada' };
   }
 }
