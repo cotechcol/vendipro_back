@@ -176,7 +176,7 @@ export class ProductsService {
       }
     }
     if (type === ProductType.BULK && !dto.stockUnit) {
-      throw new BadRequestException('Indica la unidad del insumo (g o ml)');
+      throw new BadRequestException('Indica la unidad del insumo (g, ml o uds)');
     }
   }
 
@@ -236,7 +236,7 @@ export class ProductsService {
           dto.portionSize!,
           dto.scoopCount!,
           storeId,
-          dto.stockUnit === StockUnit.ML ? StockUnit.ML : StockUnit.G,
+          dto.stockUnit ?? StockUnit.G,
         );
       }
     });
@@ -315,7 +315,7 @@ export class ProductsService {
           dto.portionSize ?? Number(existing.portionSize),
           dto.scoopCount ?? existing.scoopCount ?? 1,
           existing.storeId,
-          portionUnit === StockUnit.ML ? StockUnit.ML : StockUnit.G,
+          portionUnit,
         );
       }
     });
