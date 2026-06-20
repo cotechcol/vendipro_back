@@ -42,7 +42,11 @@ export class ProductsService {
       lowStock: isLowStock(product),
     };
     if (imageKey && this.storage.isConfigured()) {
-      enriched.imageUrl = await this.storage.getSignedUrl(imageKey);
+      try {
+        enriched.imageUrl = await this.storage.getSignedUrl(imageKey);
+      } catch {
+        // No bloquear listados si falla Supabase Storage
+      }
     }
     return enriched;
   }
