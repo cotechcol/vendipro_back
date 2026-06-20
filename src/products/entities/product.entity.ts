@@ -41,7 +41,7 @@ export class Product {
   description: string;
 
   /** Ruta del objeto en Supabase Storage (bucket imagenes) */
-  @Column({ name: 'image_key', length: 500, nullable: true })
+  @Column({ name: 'image_key', type: 'varchar', length: 500, nullable: true })
   imageKey: string | null;
 
   @Column({ name: 'product_type', type: 'enum', enum: ProductType, default: ProductType.SIMPLE })
