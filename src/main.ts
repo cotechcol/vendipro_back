@@ -2,27 +2,19 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { config } from 'dotenv';
 import { applyProcessTimezone } from './common/utils/timezone.util';
-import { runStoreMigration } from './database/store-migration';
-import { runProductMigration } from './database/product-migration';
-import { runSupplierMigration } from './database/supplier-migration';
+import { ensureDatabaseMigrations } from './database/migration-bootstrap';
 import { applyAppConfig } from './app-bootstrap';
 
 config();
 applyProcessTimezone();
 
-async function runMigrations(): Promise<void> {
-  if (process.env.VERCEL) return;
-  try {
-    await runStoreMigration();
-    await runProductMigration();
-    await runSupplierMigration();
-  } catch (err) {
-    console.error('[migration] Error aplicando migraciones:', err);
-  }
-}
-
 async function bootstrap(): Promise<void> {
-  await runMigrations();
+  try {
+    await ensureDatabaseMigrations();
+  } catch (err) {
+    console.error('[bootstrap] Migraciones fallaron:', err);
+    if (!process.env.VERCEL) process.exit(1);
+  }
 
   const app = await NestFactory.create(AppModule, {
     logger:

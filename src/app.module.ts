@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -35,6 +35,7 @@ import { PurchaseItem } from './purchases/entities/purchase-item.entity';
 import { CashSession } from './cash-sessions/entities/cash-session.entity';
 import { Sale } from './sales/entities/sale.entity';
 import { SaleItem } from './sales/entities/sale-item.entity';
+import { ensureDatabaseMigrations } from './database/migration-bootstrap';
 
 @Module({
   imports: [
@@ -86,4 +87,8 @@ import { SaleItem } from './sales/entities/sale-item.entity';
     { provide: APP_INTERCEPTOR, useClass: StoreContextInterceptor },
   ],
 })
-export class AppModule {}
+export class AppModule implements OnModuleInit {
+  async onModuleInit() {
+    await ensureDatabaseMigrations();
+  }
+}
