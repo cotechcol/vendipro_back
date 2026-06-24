@@ -3,16 +3,13 @@
   "buildCommand": "npm run vercel-build",
   "installCommand": "npm install",
   "functions": {
-    "api/index.js": {
+    "api/**/*.js": {
       "maxDuration": 30,
       "includeFiles": "dist/**"
-    },
-    "api/health.js": {
-      "maxDuration": 10
     }
   },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api" }
+    { "source": "/", "destination": "/api/health" }
   ],
   "headers": [
     {
