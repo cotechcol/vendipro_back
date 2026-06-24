@@ -218,6 +218,22 @@ export async function runProductMigration(): Promise<void> {
         `);
         console.log('[product-migration] Columna product_options.unit_cost agregada');
       }
+
+      if (!(await columnExists(connection, 'product_options', 'unit_price'))) {
+        await connection.query(`
+          ALTER TABLE product_options
+          ADD COLUMN unit_price DECIMAL(12,2) NOT NULL DEFAULT 0
+          AFTER unit_cost
+        `);
+        console.log('[product-migration] Columna product_options.unit_price agregada');
+      }
+    }
+
+    if (await tableExists(connection, 'product_option_groups')) {
+      await connection.query(`
+        ALTER TABLE product_option_groups
+        MODIFY COLUMN kind ENUM('flavor','container','addon') NOT NULL
+      `);
     }
 
     console.log('[product-migration] Esquema de productos actualizado');

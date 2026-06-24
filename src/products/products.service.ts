@@ -185,6 +185,9 @@ export class ProductsService {
       if (!('recipe' in dto) || !dto.recipe?.length) {
         throw new BadRequestException('Agrega al menos un ingrediente a la receta');
       }
+      if (dto.optionGroups?.some((g) => g.kind !== OptionGroupKind.ADDON)) {
+        throw new BadRequestException('Los productos compuestos solo admiten adicionales');
+      }
     }
     if (type === ProductType.BULK && !dto.stockUnit) {
       throw new BadRequestException('Indica la unidad del insumo (g, ml o uds)');
@@ -249,6 +252,16 @@ export class ProductsService {
           storeId,
           dto.stockUnit ?? StockUnit.G,
         );
+      } else if (productType === ProductType.COMPOSITE && dto.optionGroups?.length) {
+        await this.saveOptionGroups(
+          manager,
+          saved.id,
+          dto.optionGroups,
+          1,
+          1,
+          storeId,
+          StockUnit.UNIT,
+        );
       }
     });
 
@@ -277,11 +290,30 @@ export class ProductsService {
       );
     }
 
+    if (existing.productType === ProductType.COMPOSITE && dto.optionGroups) {
+      const invalid = dto.optionGroups.some((g) => g.kind !== OptionGroupKind.ADDON);
+      if (invalid) {
+        throw new BadRequestException('Los productos compuestos solo admiten adicionales');
+      }
+    }
+
     await this.dataSource.transaction(async (manager) => {
       const { recipe, optionGroups, ...scalarFields } = dto;
-      const hasOptions = optionGroups?.length;
+      const hasPortionOptions = optionGroups?.length && existing.productType === ProductType.PORTION;
+      const hasCompositeAddons = optionGroups !== undefined && existing.productType === ProductType.COMPOSITE;
 
-      if (optionGroups && existing.productType === ProductType.PORTION) {
+      if (hasPortionOptions) {
+        const oldGroups = await manager.find(ProductOptionGroup, {
+          where: { productId: existing.id },
+          select: ['id'],
+        });
+        if (oldGroups.length) {
+          await manager.delete(ProductOption, { groupId: In(oldGroups.map((g) => g.id)) });
+          await manager.delete(ProductOptionGroup, { productId: existing.id });
+        }
+      }
+
+      if (hasCompositeAddons) {
         const oldGroups = await manager.find(ProductOptionGroup, {
           where: { productId: existing.id },
           select: ['id'],
@@ -297,7 +329,7 @@ export class ProductsService {
       }
 
       const productPatch: Record<string, unknown> = { ...scalarFields };
-      if (hasOptions) {
+      if (hasPortionOptions) {
         productPatch.baseProductId = null;
         productPatch.scoopCount = dto.scoopCount ?? existing.scoopCount;
       }
@@ -317,7 +349,7 @@ export class ProductsService {
         }
       }
 
-      if (optionGroups && existing.productType === ProductType.PORTION) {
+      if (hasPortionOptions && optionGroups) {
         const portionUnit = dto.stockUnit ?? existing.stockUnit;
         await this.saveOptionGroups(
           manager,
@@ -327,6 +359,18 @@ export class ProductsService {
           dto.scoopCount ?? existing.scoopCount ?? 1,
           existing.storeId,
           portionUnit,
+        );
+      }
+
+      if (hasCompositeAddons && optionGroups) {
+        await this.saveOptionGroups(
+          manager,
+          existing.id,
+          optionGroups,
+          1,
+          1,
+          existing.storeId,
+          StockUnit.UNIT,
         );
       }
     });
@@ -345,13 +389,21 @@ export class ProductsService {
   ) {
     let sortOrder = 0;
     for (const groupDto of groups ?? []) {
-      const minSelect = groupDto.kind === OptionGroupKind.FLAVOR ? scoopCount : 1;
+      const isAddon = groupDto.kind === OptionGroupKind.ADDON;
+      const minSelect = groupDto.kind === OptionGroupKind.FLAVOR
+        ? scoopCount
+        : isAddon
+          ? 0
+          : 1;
+      const maxSelect = isAddon
+        ? Math.max(groupDto.options?.length ?? 0, 1)
+        : minSelect;
       const group = await manager.save(manager.create(ProductOptionGroup, {
         productId,
         name: groupDto.name,
         kind: groupDto.kind,
         minSelect,
-        maxSelect: minSelect,
+        maxSelect,
         sortOrder: sortOrder++,
       }));
 
@@ -376,6 +428,10 @@ export class ProductsService {
           }
         }
 
+        const unitPrice = opt.unitPrice !== undefined && opt.unitPrice !== null
+          ? Number(opt.unitPrice)
+          : 0;
+
         await manager.save(manager.create(ProductOption, {
           groupId: group.id,
           name: opt.name,
@@ -383,6 +439,7 @@ export class ProductsService {
           quantity,
           unit,
           unitCost,
+          unitPrice,
         }));
       }
     }

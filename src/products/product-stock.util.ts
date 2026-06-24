@@ -178,6 +178,33 @@ export async function planStockDeductions(
           quantity: deduct,
         });
       }
+
+      if (selectedOptionIds?.length) {
+        const addonDeductions = await planAddonDeductions(
+          manager,
+          product,
+          saleQty,
+          storeId,
+          selectedOptionIds,
+        );
+        for (const addon of addonDeductions) {
+          const existing = deductions.find((d) => d.productId === addon.productId);
+          if (existing) {
+            existing.quantity += addon.quantity;
+          } else {
+            deductions.push(addon);
+          }
+        }
+        for (const d of deductions) {
+          const ingredient = await manager.findOne(Product, { where: { id: d.productId, storeId } });
+          if (!ingredient || num(ingredient.stock) < d.quantity) {
+            throw new BadRequestException(
+              `Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ''})`,
+            );
+          }
+        }
+      }
+
       return deductions;
     }
 
@@ -325,26 +352,143 @@ function resolveOptionUnitCost(option: ProductOptionGroup['options'][0]): number
   return Number((num(ingredient.costPrice) * num(option.quantity)).toFixed(2));
 }
 
-/** Costo real de una venta según sabores y envase elegidos */
+function buildOptionLookup(product: Product): {
+  optionMap: Map<number, ProductOptionGroup['options'][0]>;
+  groupByOptionId: Map<number, ProductOptionGroup>;
+} {
+  const optionMap = new Map<number, ProductOptionGroup['options'][0]>();
+  const groupByOptionId = new Map<number, ProductOptionGroup>();
+  for (const group of product.optionGroups ?? []) {
+    for (const option of group.options ?? []) {
+      optionMap.set(option.id, option);
+      groupByOptionId.set(option.id, group);
+    }
+  }
+  return { optionMap, groupByOptionId };
+}
+
+async function planAddonDeductions(
+  manager: EntityManager,
+  product: Product,
+  saleQty: number,
+  storeId: number,
+  selectedOptionIds: number[],
+): Promise<StockDeduction[]> {
+  const groups = product.optionGroups?.length
+    ? product.optionGroups
+    : await loadOptionGroups(manager, product.id);
+
+  const addonGroups = groups.filter((g) => g.kind === OptionGroupKind.ADDON);
+  if (!addonGroups.length) return [];
+
+  const optionMap = new Map<number, ProductOptionGroup['options'][0]>();
+  const addonOptionIds = new Set<number>();
+  for (const group of addonGroups) {
+    for (const option of group.options ?? []) {
+      optionMap.set(option.id, option);
+      addonOptionIds.add(option.id);
+    }
+  }
+
+  const selectedAddons = selectedOptionIds.filter((id) => addonOptionIds.has(id));
+  if (!selectedAddons.length) return [];
+
+  const byGroup = new Map<number, number[]>();
+  for (const optionId of selectedAddons) {
+    const option = optionMap.get(optionId);
+    if (!option) {
+      throw new BadRequestException('Adicional no válido para este producto');
+    }
+    const group = addonGroups.find((g) => g.options?.some((o) => o.id === optionId));
+    if (!group) continue;
+    const list = byGroup.get(group.id) ?? [];
+    list.push(optionId);
+    byGroup.set(group.id, list);
+  }
+
+  for (const group of addonGroups) {
+    const selected = byGroup.get(group.id) ?? [];
+    if (selected.length < group.minSelect || selected.length > group.maxSelect) {
+      throw new BadRequestException(
+        `Selecciona entre ${group.minSelect} y ${group.maxSelect} opción(es) de "${group.name}"`,
+      );
+    }
+  }
+
+  const totals = new Map<number, { name: string; quantity: number }>();
+  for (const optionId of selectedAddons) {
+    const option = optionMap.get(optionId)!;
+    const ingredient = option.ingredient
+      ?? await manager.findOne(Product, { where: { id: option.ingredientProductId, storeId } });
+    if (!ingredient) {
+      throw new BadRequestException(`Insumo de "${option.name}" no encontrado`);
+    }
+    const deduct = num(option.quantity) * saleQty;
+    const prev = totals.get(ingredient.id);
+    totals.set(ingredient.id, {
+      name: ingredient.name,
+      quantity: (prev?.quantity ?? 0) + deduct,
+    });
+  }
+
+  return Array.from(totals.entries()).map(([productId, entry]) => ({
+    productId,
+    productName: entry.name,
+    quantity: entry.quantity,
+  }));
+}
+
+/** Costo real de una venta según sabores, envase o adicionales elegidos */
 export function calculateSaleUnitCost(
   product: Product,
   selectedOptionIds?: number[],
 ): number {
+  const isComposite = product.productType === ProductType.COMPOSITE;
+
   if (!selectedOptionIds?.length || !product.optionGroups?.length) {
     return num(product.costPrice);
   }
 
-  const optionMap = new Map<number, ProductOptionGroup['options'][0]>();
-  for (const group of product.optionGroups) {
-    for (const option of group.options ?? []) {
-      optionMap.set(option.id, option);
+  const { optionMap, groupByOptionId } = buildOptionLookup(product);
+  let total = isComposite ? num(product.costPrice) : 0;
+
+  for (const optionId of selectedOptionIds) {
+    const option = optionMap.get(optionId);
+    if (!option) continue;
+    const group = groupByOptionId.get(optionId);
+    if (isComposite) {
+      if (group?.kind === OptionGroupKind.ADDON) {
+        total += resolveOptionUnitCost(option);
+      }
+    } else {
+      total += resolveOptionUnitCost(option);
     }
   }
 
-  let total = 0;
+  return Number(total.toFixed(2));
+}
+
+/** Precio de venta según adicionales elegidos (base + extras) */
+export function calculateSaleUnitPrice(
+  product: Product,
+  selectedOptionIds?: number[],
+): number {
+  let price = num(product.salePrice);
+
+  if (!selectedOptionIds?.length || !product.optionGroups?.length) {
+    return price;
+  }
+
+  const { optionMap, groupByOptionId } = buildOptionLookup(product);
+
   for (const optionId of selectedOptionIds) {
     const option = optionMap.get(optionId);
-    if (option) total += resolveOptionUnitCost(option);
+    if (!option) continue;
+    const group = groupByOptionId.get(optionId);
+    if (group?.kind === OptionGroupKind.ADDON) {
+      price += num(option.unitPrice);
+    }
   }
-  return Number(total.toFixed(2));
+
+  return Number(price.toFixed(2));
 }
