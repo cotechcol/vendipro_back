@@ -13,7 +13,12 @@ let bootstrapPromise: Promise<Express> | undefined;
 let bootstrapError: Error | undefined;
 
 function requestUrl(req: IncomingMessage): string {
-  return req.url ?? '/';
+  const raw = req.url ?? '/';
+  const original = (req.headers as Record<string, string | string[] | undefined>)['x-vercel-original-url'];
+  if (typeof original === 'string' && original.startsWith('/')) {
+    return original.split('?')[0] + (raw.includes('?') ? raw.slice(raw.indexOf('?')) : '');
+  }
+  return raw;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {

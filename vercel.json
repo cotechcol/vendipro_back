@@ -1,10 +1,14 @@
 {
   "version": 2,
-  "buildCommand": "npm run build",
+  "buildCommand": "npm run vercel-build",
   "installCommand": "npm install",
   "functions": {
     "api/index.js": {
-      "maxDuration": 30
+      "maxDuration": 30,
+      "includeFiles": "dist/**"
+    },
+    "api/health.js": {
+      "maxDuration": 10
     }
   },
   "rewrites": [
