@@ -38,18 +38,23 @@ import { SaleItem } from './sales/entities/sale-item.entity';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      ignoreEnvFile: !!process.env.VERCEL,
+    }),
     StorageModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'mysql',
-        host: config.get('DB_HOST', 'localhost'),
+      useFactory: (config: ConfigService) => {
+        const onVercel = !!process.env.VERCEL;
+        return {
+        type: 'mysql' as const,
+        host: config.get<string>('DB_HOST', 'localhost'),
         port: config.get<number>('DB_PORT', 3306),
-        username: config.get('DB_USERNAME', 'root'),
-        password: config.get('DB_PASSWORD', ''),
-        database: config.get('DB_DATABASE', 'pos_db'),
+        username: config.get<string>('DB_USERNAME', 'root'),
+        password: config.get<string>('DB_PASSWORD', ''),
+        database: config.get<string>('DB_DATABASE', 'pos_db'),
         entities: [
           Store, User, Category, Product, ProductRecipe, ProductOptionGroup, ProductOption,
           Customer, Supplier, Setting,
@@ -58,13 +63,14 @@ import { SaleItem } from './sales/entities/sale-item.entity';
         synchronize: false,
         timezone: 'Z',
         logging: process.env.NODE_ENV === 'production' ? ['error'] : true,
-        retryAttempts: 3,
-        retryDelay: 2000,
+        retryAttempts: onVercel ? 1 : 3,
+        retryDelay: onVercel ? 500 : 2000,
         extra: {
-          connectionLimit: process.env.VERCEL ? 1 : 5,
-          connectTimeout: 10_000,
+          connectionLimit: onVercel ? 1 : 5,
+          connectTimeout: onVercel ? 5_000 : 10_000,
         },
-      }),
+      };
+      },
     }),
     AuthModule,
     StoresModule,

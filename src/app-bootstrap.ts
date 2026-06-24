@@ -60,13 +60,14 @@ export function applyAppConfig(app: INestApplication): void {
 }
 
 export async function createNestApp(expressApp?: Express): Promise<INestApplication> {
+  const logger: ('error' | 'warn' | 'log')[] = process.env.NODE_ENV === 'production'
+    ? ['error', 'warn']
+    : ['log', 'error', 'warn'];
+  const nestOptions = { logger, abortOnError: false };
+
   const app = expressApp
-    ? await NestFactory.create(AppModule, new ExpressAdapter(expressApp), {
-        logger: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['log', 'error', 'warn'],
-      })
-    : await NestFactory.create(AppModule, {
-        logger: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['log', 'error', 'warn'],
-      });
+    ? await NestFactory.create(AppModule, new ExpressAdapter(expressApp), nestOptions)
+    : await NestFactory.create(AppModule, nestOptions);
 
   applyAppConfig(app);
   return app;
