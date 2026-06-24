@@ -1,29 +1,50 @@
 import { config } from 'dotenv';
-import { applyProcessTimezone } from './common/utils/timezone.util';
-import { ensureDatabaseMigrations } from './database/migration-bootstrap';
-import { createNestApp } from './app-bootstrap';
+import type { Express } from 'express';
 import express from 'express';
-import serverlessExpress from '@vendia/serverless-express';
+import type { IncomingMessage, ServerResponse } from 'http';
+import { applyProcessTimezone } from './common/utils/timezone.util';
+import { createNestApp } from './app-bootstrap';
 
 config();
 applyProcessTimezone();
 
-type ServerlessHandler = ReturnType<typeof serverlessExpress>;
+let expressApp: Express | undefined;
+let bootstrapPromise: Promise<Express> | undefined;
 
-let cached: ServerlessHandler | undefined;
-
-async function bootstrap(): Promise<ServerlessHandler> {
-  await ensureDatabaseMigrations();
-
-  const expressApp = express();
-  const app = await createNestApp(expressApp);
-  await app.init();
-  return serverlessExpress({ app: expressApp });
+async function bootstrap(): Promise<Express> {
+  const app = express();
+  const nestApp = await createNestApp(app);
+  await nestApp.init();
+  return app;
 }
 
-export async function handler(req: unknown, res: unknown, next?: unknown) {
-  if (!cached) {
-    cached = await bootstrap();
+export async function getApp(): Promise<Express> {
+  if (!expressApp) {
+    if (!bootstrapPromise) {
+      bootstrapPromise = bootstrap().then((app) => {
+        expressApp = app;
+        return app;
+      }).catch((err) => {
+        bootstrapPromise = undefined;
+        throw err;
+      });
+    }
+    expressApp = await bootstrapPromise;
   }
-  return cached(req, res, next);
+  return expressApp;
+}
+
+/** Entry point para Vercel (api/index.js) — usa req/res nativos de Node, no AWS Lambda. */
+export async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const app = await getApp();
+    app(req, res);
+  } catch (err) {
+    console.error('[vercel] Error al iniciar la aplicación:', err);
+    if (!res.headersSent) {
+      res.statusCode = 503;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ statusCode: 503, message: 'Error al iniciar el servidor' }));
+    }
+  }
 }
