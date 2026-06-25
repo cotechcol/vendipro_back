@@ -45,6 +45,8 @@ function lightResponse(p, res) {
 
 function resolveVercelHandler() {
   const candidates = [
+    path.join(__dirname, '..', 'serverless', 'dist', 'vercel.js'),
+    path.join(process.cwd(), 'serverless', 'dist', 'vercel.js'),
     path.join(__dirname, '..', 'dist', 'vercel.js'),
     path.join(process.cwd(), 'dist', 'vercel.js'),
   ];
@@ -54,7 +56,7 @@ function resolveVercelHandler() {
       return mod.handler || mod.default || mod;
     }
   }
-  throw new Error(`Build incompleto: no existe dist/vercel.js (buscado en: ${candidates.join(', ')})`);
+  throw new Error(`Build incompleto: falta serverless/dist/vercel.js (buscado en: ${candidates.join(', ')})`);
 }
 
 let nestHandler;
