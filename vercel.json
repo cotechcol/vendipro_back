@@ -3,17 +3,14 @@
   "framework": null,
   "installCommand": "npm install",
   "buildCommand": "npm run build",
-  "builds": [
-    {
-      "src": "dist/vercel.js",
-      "use": "@vercel/node",
-      "config": {
-        "maxDuration": 30
-      }
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 30,
+      "includeFiles": "dist/**"
     }
-  ],
-  "routes": [
-    { "src": "/(.*)", "dest": "dist/vercel.js" }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api" }
   ],
   "headers": [
     {
