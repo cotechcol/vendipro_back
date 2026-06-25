@@ -1,7 +1,5 @@
 'use strict';
 
-const { handler: nestHandler } = require('../dist/vercel.js');
-
 function sendJson(res, status, body) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json');
@@ -42,6 +40,20 @@ function lightResponse(p, res) {
   });
 }
 
+let nestHandler;
+
+/** Literal estático para que @vercel/node trace e incluya dist/ en la lambda */
+function getNestHandler() {
+  if (!nestHandler) {
+    const mod = require('../dist/vercel.js');
+    nestHandler = mod.handler || mod.default;
+    if (typeof nestHandler !== 'function') {
+      throw new Error('dist/vercel.js no exporta handler');
+    }
+  }
+  return nestHandler;
+}
+
 module.exports = (req, res) => {
   const p = pathOf(req);
 
@@ -51,7 +63,7 @@ module.exports = (req, res) => {
 
   (async () => {
     try {
-      await nestHandler(req, res);
+      await getNestHandler()(req, res);
     } catch (err) {
       console.error('[api/index]', err);
       if (!res.headersSent) {
