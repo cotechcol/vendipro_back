@@ -11,7 +11,6 @@
   },
   "scripts": {
     "build": "nest build",
-    "vercel-build": "nest build && node scripts/vercel-postbuild.mjs",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",

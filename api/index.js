@@ -21,17 +21,11 @@ function isHealth(pathname) {
 }
 
 function loadNestHandler() {
-  const candidates = [
-    path.join(__dirname, 'dist', 'vercel.js'),
-    path.join(__dirname, '..', 'dist', 'vercel.js'),
-    path.join(process.cwd(), 'dist', 'vercel.js'),
-  ];
-  for (const file of candidates) {
-    if (fs.existsSync(file)) {
-      return require(file).handler;
-    }
+  const file = path.join(process.cwd(), 'dist', 'vercel.js');
+  if (!fs.existsSync(file)) {
+    throw new Error(`No existe ${file} — ¿falló el build en Vercel?`);
   }
-  throw new Error(`vercel.js no encontrado. Rutas: ${candidates.join(', ')}`);
+  return require(file).handler;
 }
 
 let nestHandler;
@@ -53,7 +47,7 @@ module.exports = (req, res) => {
       if (!nestHandler) nestHandler = loadNestHandler();
       await nestHandler(req, res);
     } catch (err) {
-      console.error('[api] Error:', err);
+      console.error('[api/index] Error:', err);
       if (!res.headersSent) {
         sendJson(res, 500, {
           statusCode: 500,

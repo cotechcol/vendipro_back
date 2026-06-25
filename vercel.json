@@ -1,15 +1,18 @@
 {
   "version": 2,
-  "buildCommand": "npm run vercel-build",
+  "buildCommand": "npm run build",
   "installCommand": "npm install",
   "functions": {
-    "api/**/*.js": {
+    "api/index.js": {
       "maxDuration": 30,
       "includeFiles": "dist/**"
+    },
+    "api/ping.js": {
+      "maxDuration": 10
     }
   },
   "rewrites": [
-    { "source": "/", "destination": "/api/health" }
+    { "source": "/(.*)", "destination": "/api" }
   ],
   "headers": [
     {
