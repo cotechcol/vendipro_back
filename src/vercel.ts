@@ -67,8 +67,25 @@ export async function getApp(): Promise<Express> {
 /** Entry point para Vercel (api/index.js) */
 export async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = requestUrl(req);
+  const pathOnly = url.split('?')[0];
 
-  if (url === '/api/health' || url === '/health' || url.startsWith('/api/health?')) {
+  if (pathOnly === '/api/ping' || pathOnly === '/ping') {
+    sendJson(res, 200, { pong: true, ts: Date.now() });
+    return;
+  }
+
+  if (pathOnly === '/' || pathOnly === '/api') {
+    sendJson(res, 200, {
+      ok: true,
+      service: 'vendipro-back',
+      dbHost: process.env.DB_HOST ?? null,
+      dbDatabase: process.env.DB_DATABASE ?? null,
+      hasJwtSecret: !!process.env.JWT_SECRET,
+    });
+    return;
+  }
+
+  if (pathOnly === '/api/health' || pathOnly === '/health') {
     sendJson(res, 200, {
       ok: true,
       dbHost: process.env.DB_HOST ?? null,
@@ -93,3 +110,5 @@ export async function handler(req: IncomingMessage, res: ServerResponse): Promis
     }
   }
 }
+
+export default handler;

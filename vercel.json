@@ -2,19 +2,18 @@
   "version": 2,
   "framework": null,
   "installCommand": "npm install",
-  "buildCommand": "rm -rf api/dist && npm run build",
+  "buildCommand": "npm run build",
   "builds": [
     {
-      "src": "api/index.js",
+      "src": "dist/vercel.js",
       "use": "@vercel/node",
       "config": {
-        "maxDuration": 30,
-        "includeFiles": ["dist/**"]
+        "maxDuration": 30
       }
     }
   ],
   "routes": [
-    { "src": "/(.*)", "dest": "api/index.js" }
+    { "src": "/(.*)", "dest": "dist/vercel.js" }
   ],
   "headers": [
     {
