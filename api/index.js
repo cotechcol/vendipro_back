@@ -42,10 +42,10 @@ function lightResponse(p, res) {
 
 let nestHandler;
 
-/** Literal estático para que @vercel/node trace e incluya dist/ en la lambda */
+/** Literal estático para que @vercel/node trace e incluya vercel-output/ */
 function getNestHandler() {
   if (!nestHandler) {
-    const mod = require('../dist/vercel.js');
+    const mod = require('../vercel-output/vercel.js');
     nestHandler = mod.handler || mod.default;
     if (typeof nestHandler !== 'function') {
       throw new Error('dist/vercel.js no exporta handler');
