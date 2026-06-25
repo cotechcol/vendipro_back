@@ -3706,6 +3706,9 @@ var require_products_service = __commonJS({
     var store_context_util_1 = require_store_context_util();
     var product_stock_util_1 = require_product_stock_util();
     var storage_service_1 = require_storage_service();
+    var inventory_movement_entity_1 = require_inventory_movement_entity();
+    var sale_item_entity_1 = require_sale_item_entity();
+    var purchase_item_entity_1 = require_purchase_item_entity();
     var PRODUCT_RELATIONS = [
       "category",
       "baseProduct",
@@ -4023,14 +4026,57 @@ var require_products_service = __commonJS({
         const product = await this.repo.findOne({ where: { id } });
         if (!product)
           throw new common_1.NotFoundException("Producto no encontrado");
-        if (product.storeId !== this.scopeStore(ctx)) {
+        const storeId = this.scopeStore(ctx);
+        if (product.storeId !== storeId) {
           throw new common_1.ForbiddenException("Producto no pertenece a esta tienda");
+        }
+        try {
+          await this.dataSource.transaction(async (manager) => {
+            await this.assertCanDeleteProduct(manager, id, storeId);
+            const groups = await manager.find(product_option_group_entity_1.ProductOptionGroup, { where: { productId: id } });
+            if (groups.length) {
+              await manager.delete(product_option_entity_1.ProductOption, { groupId: (0, typeorm_2.In)(groups.map((g) => g.id)) });
+              await manager.delete(product_option_group_entity_1.ProductOptionGroup, { productId: id });
+            }
+            await manager.delete(product_recipe_entity_1.ProductRecipe, { productId: id });
+            await manager.delete(inventory_movement_entity_1.InventoryMovement, { productId: id });
+            await manager.delete(product_entity_1.Product, { id });
+          });
+        } catch (err) {
+          if (err instanceof common_1.BadRequestException || err instanceof common_1.NotFoundException || err instanceof common_1.ForbiddenException) {
+            throw err;
+          }
+          if (err instanceof typeorm_2.QueryFailedError && String(err.message).includes("foreign key constraint")) {
+            throw new common_1.BadRequestException("No se puede eliminar el producto porque tiene registros asociados (ventas, compras o uso como ingrediente).");
+          }
+          throw err;
         }
         if (product.imageKey) {
           await this.storage.deleteObject(product.imageKey);
         }
-        await this.repo.remove(product);
         return { message: "Producto eliminado" };
+      }
+      async assertCanDeleteProduct(manager, productId, storeId) {
+        const saleCount = await manager.count(sale_item_entity_1.SaleItem, { where: { productId } });
+        if (saleCount > 0) {
+          throw new common_1.BadRequestException("No se puede eliminar: el producto tiene ventas registradas. Desact\xEDvalo en su lugar.");
+        }
+        const purchaseCount = await manager.count(purchase_item_entity_1.PurchaseItem, { where: { productId } });
+        if (purchaseCount > 0) {
+          throw new common_1.BadRequestException("No se puede eliminar: el producto tiene compras registradas.");
+        }
+        const recipeUse = await manager.count(product_recipe_entity_1.ProductRecipe, { where: { ingredientProductId: productId } });
+        if (recipeUse > 0) {
+          throw new common_1.BadRequestException("No se puede eliminar: el producto es ingrediente de otro producto compuesto.");
+        }
+        const optionUse = await manager.count(product_option_entity_1.ProductOption, { where: { ingredientProductId: productId } });
+        if (optionUse > 0) {
+          throw new common_1.BadRequestException("No se puede eliminar: el producto es ingrediente de sabores, envases o adicionales.");
+        }
+        const portionUse = await manager.count(product_entity_1.Product, { where: { baseProductId: productId, storeId } });
+        if (portionUse > 0) {
+          throw new common_1.BadRequestException("No se puede eliminar: otros productos por porci\xF3n usan este insumo como base.");
+        }
       }
       async uploadImage(id, file, ctx) {
         if (!file)

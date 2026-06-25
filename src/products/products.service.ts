@@ -2,7 +2,7 @@ import {
   Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, EntityManager, In } from 'typeorm';
+import { Repository, DataSource, EntityManager, In, QueryFailedError } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { ProductRecipe } from './entities/product-recipe.entity';
 import { ProductOptionGroup } from './entities/product-option-group.entity';
@@ -14,6 +14,9 @@ import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
 import { getSellableUnits, isLowStock } from './product-stock.util';
 import { StorageService } from '../storage/storage.service';
+import { InventoryMovement } from '../inventory/entities/inventory-movement.entity';
+import { SaleItem } from '../sales/entities/sale-item.entity';
+import { PurchaseItem } from '../purchases/entities/purchase-item.entity';
 
 const PRODUCT_RELATIONS = [
   'category',
@@ -458,14 +461,77 @@ export class ProductsService {
   async remove(id: number, ctx: StoreContext) {
     const product = await this.repo.findOne({ where: { id } });
     if (!product) throw new NotFoundException('Producto no encontrado');
-    if (product.storeId !== this.scopeStore(ctx)) {
+    const storeId = this.scopeStore(ctx);
+    if (product.storeId !== storeId) {
       throw new ForbiddenException('Producto no pertenece a esta tienda');
     }
+
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        await this.assertCanDeleteProduct(manager, id, storeId);
+
+        const groups = await manager.find(ProductOptionGroup, { where: { productId: id } });
+        if (groups.length) {
+          await manager.delete(ProductOption, { groupId: In(groups.map((g) => g.id)) });
+          await manager.delete(ProductOptionGroup, { productId: id });
+        }
+        await manager.delete(ProductRecipe, { productId: id });
+        await manager.delete(InventoryMovement, { productId: id });
+        await manager.delete(Product, { id });
+      });
+    } catch (err) {
+      if (err instanceof BadRequestException || err instanceof NotFoundException || err instanceof ForbiddenException) {
+        throw err;
+      }
+      if (err instanceof QueryFailedError && String(err.message).includes('foreign key constraint')) {
+        throw new BadRequestException(
+          'No se puede eliminar el producto porque tiene registros asociados (ventas, compras o uso como ingrediente).',
+        );
+      }
+      throw err;
+    }
+
     if (product.imageKey) {
       await this.storage.deleteObject(product.imageKey);
     }
-    await this.repo.remove(product);
     return { message: 'Producto eliminado' };
+  }
+
+  private async assertCanDeleteProduct(manager: EntityManager, productId: number, storeId: number) {
+    const saleCount = await manager.count(SaleItem, { where: { productId } });
+    if (saleCount > 0) {
+      throw new BadRequestException(
+        'No se puede eliminar: el producto tiene ventas registradas. Desactívalo en su lugar.',
+      );
+    }
+
+    const purchaseCount = await manager.count(PurchaseItem, { where: { productId } });
+    if (purchaseCount > 0) {
+      throw new BadRequestException(
+        'No se puede eliminar: el producto tiene compras registradas.',
+      );
+    }
+
+    const recipeUse = await manager.count(ProductRecipe, { where: { ingredientProductId: productId } });
+    if (recipeUse > 0) {
+      throw new BadRequestException(
+        'No se puede eliminar: el producto es ingrediente de otro producto compuesto.',
+      );
+    }
+
+    const optionUse = await manager.count(ProductOption, { where: { ingredientProductId: productId } });
+    if (optionUse > 0) {
+      throw new BadRequestException(
+        'No se puede eliminar: el producto es ingrediente de sabores, envases o adicionales.',
+      );
+    }
+
+    const portionUse = await manager.count(Product, { where: { baseProductId: productId, storeId } });
+    if (portionUse > 0) {
+      throw new BadRequestException(
+        'No se puede eliminar: otros productos por porción usan este insumo como base.',
+      );
+    }
   }
 
   async uploadImage(id: number, file: Express.Multer.File, ctx: StoreContext) {
