@@ -469,6 +469,7 @@ export class ProductsService {
     try {
       await this.dataSource.transaction(async (manager) => {
         await this.assertCanDeleteProduct(manager, id, storeId);
+        await this.cleanupIngredientReferences(manager, id, storeId);
 
         const groups = await manager.find(ProductOptionGroup, { where: { productId: id } });
         if (groups.length) {
@@ -511,27 +512,28 @@ export class ProductsService {
         'No se puede eliminar: el producto tiene compras registradas.',
       );
     }
+  }
 
-    const recipeUse = await manager.count(ProductRecipe, { where: { ingredientProductId: productId } });
-    if (recipeUse > 0) {
-      throw new BadRequestException(
-        'No se puede eliminar: el producto es ingrediente de otro producto compuesto.',
-      );
+  /** Quita referencias de otros productos antes de borrar un insumo */
+  private async cleanupIngredientReferences(
+    manager: EntityManager,
+    productId: number,
+    storeId: number,
+  ) {
+    const options = await manager.find(ProductOption, { where: { ingredientProductId: productId } });
+    if (options.length) {
+      const groupIds = [...new Set(options.map((o) => o.groupId))];
+      await manager.delete(ProductOption, { ingredientProductId: productId });
+      for (const groupId of groupIds) {
+        const remaining = await manager.count(ProductOption, { where: { groupId } });
+        if (remaining === 0) {
+          await manager.delete(ProductOptionGroup, { id: groupId });
+        }
+      }
     }
 
-    const optionUse = await manager.count(ProductOption, { where: { ingredientProductId: productId } });
-    if (optionUse > 0) {
-      throw new BadRequestException(
-        'No se puede eliminar: el producto es ingrediente de sabores, envases o adicionales.',
-      );
-    }
-
-    const portionUse = await manager.count(Product, { where: { baseProductId: productId, storeId } });
-    if (portionUse > 0) {
-      throw new BadRequestException(
-        'No se puede eliminar: otros productos por porción usan este insumo como base.',
-      );
-    }
+    await manager.delete(ProductRecipe, { ingredientProductId: productId });
+    await manager.update(Product, { baseProductId: productId, storeId }, { baseProductId: null });
   }
 
   async uploadImage(id: number, file: Express.Multer.File, ctx: StoreContext) {

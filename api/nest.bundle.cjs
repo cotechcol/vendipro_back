@@ -4033,6 +4033,7 @@ var require_products_service = __commonJS({
         try {
           await this.dataSource.transaction(async (manager) => {
             await this.assertCanDeleteProduct(manager, id, storeId);
+            await this.cleanupIngredientReferences(manager, id, storeId);
             const groups = await manager.find(product_option_group_entity_1.ProductOptionGroup, { where: { productId: id } });
             if (groups.length) {
               await manager.delete(product_option_entity_1.ProductOption, { groupId: (0, typeorm_2.In)(groups.map((g) => g.id)) });
@@ -4065,18 +4066,21 @@ var require_products_service = __commonJS({
         if (purchaseCount > 0) {
           throw new common_1.BadRequestException("No se puede eliminar: el producto tiene compras registradas.");
         }
-        const recipeUse = await manager.count(product_recipe_entity_1.ProductRecipe, { where: { ingredientProductId: productId } });
-        if (recipeUse > 0) {
-          throw new common_1.BadRequestException("No se puede eliminar: el producto es ingrediente de otro producto compuesto.");
+      }
+      async cleanupIngredientReferences(manager, productId, storeId) {
+        const options = await manager.find(product_option_entity_1.ProductOption, { where: { ingredientProductId: productId } });
+        if (options.length) {
+          const groupIds = [...new Set(options.map((o) => o.groupId))];
+          await manager.delete(product_option_entity_1.ProductOption, { ingredientProductId: productId });
+          for (const groupId of groupIds) {
+            const remaining = await manager.count(product_option_entity_1.ProductOption, { where: { groupId } });
+            if (remaining === 0) {
+              await manager.delete(product_option_group_entity_1.ProductOptionGroup, { id: groupId });
+            }
+          }
         }
-        const optionUse = await manager.count(product_option_entity_1.ProductOption, { where: { ingredientProductId: productId } });
-        if (optionUse > 0) {
-          throw new common_1.BadRequestException("No se puede eliminar: el producto es ingrediente de sabores, envases o adicionales.");
-        }
-        const portionUse = await manager.count(product_entity_1.Product, { where: { baseProductId: productId, storeId } });
-        if (portionUse > 0) {
-          throw new common_1.BadRequestException("No se puede eliminar: otros productos por porci\xF3n usan este insumo como base.");
-        }
+        await manager.delete(product_recipe_entity_1.ProductRecipe, { ingredientProductId: productId });
+        await manager.update(product_entity_1.Product, { baseProductId: productId, storeId }, { baseProductId: null });
       }
       async uploadImage(id, file, ctx) {
         if (!file)
