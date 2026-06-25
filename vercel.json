@@ -2,14 +2,13 @@
   "version": 2,
   "framework": null,
   "installCommand": "npm install",
-  "buildCommand": "npm run build && node scripts/prepare-vercel-output.mjs",
+  "buildCommand": "npm run build && node scripts/bundle-vercel.mjs",
   "builds": [
     {
       "src": "api/index.js",
       "use": "@vercel/node",
       "config": {
-        "maxDuration": 30,
-        "includeFiles": "vercel-output/**"
+        "maxDuration": 30
       }
     }
   ],
