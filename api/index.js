@@ -45,6 +45,12 @@ let nestHandler;
 /** Literal estático para que @vercel/node trace e incluya vercel-output/ */
 function getNestHandler() {
   if (!nestHandler) {
+    const bundlePath = require('path').join(__dirname, 'nest.bundle.cjs');
+    const fs = require('fs');
+    if (!fs.existsSync(bundlePath)) {
+      const dir = fs.readdirSync(__dirname).join(', ');
+      throw new Error(`Falta api/nest.bundle.cjs (contenido de ${__dirname}: ${dir})`);
+    }
     const mod = require('./nest.bundle.cjs');
     nestHandler = mod.handler || mod.default;
     if (typeof nestHandler !== 'function') {

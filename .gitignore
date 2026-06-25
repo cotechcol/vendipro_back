@@ -4,7 +4,6 @@ node_modules/
 # Build
 dist/
 api/dist/
-api/nest.bundle.cjs
 serverless/
 vercel-output/
 build/
