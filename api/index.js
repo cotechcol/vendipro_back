@@ -1,3 +1,5 @@
+'use strict';
+
 const path = require('path');
 const fs = require('fs');
 
@@ -7,7 +9,7 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-function getPath(req) {
+function pathOf(req) {
   const direct = (req.url || '/').split('?')[0];
   const original = req.headers['x-vercel-original-url'] || req.headers['x-invoke-path'];
   if (typeof original === 'string' && original.startsWith('/')) {
@@ -16,43 +18,55 @@ function getPath(req) {
   return direct;
 }
 
-function isHealth(pathname) {
-  return pathname === '/api/health' || pathname === '/health';
+function isLightRoute(p) {
+  return (
+    p === '/'
+    || p === '/api'
+    || p === '/api/ping'
+    || p === '/ping'
+    || p === '/api/health'
+    || p === '/health'
+  );
 }
 
-function loadNestHandler() {
-  const file = path.join(process.cwd(), 'dist', 'vercel.js');
-  if (!fs.existsSync(file)) {
-    throw new Error(`No existe ${file} — ¿falló el build en Vercel?`);
+function lightResponse(p, res) {
+  if (p === '/api/ping' || p === '/ping') {
+    return sendJson(res, 200, { pong: true, ts: Date.now() });
   }
-  return require(file).handler;
+  return sendJson(res, 200, {
+    ok: true,
+    dbHost: process.env.DB_HOST || null,
+    dbDatabase: process.env.DB_DATABASE || null,
+    hasJwtSecret: !!process.env.JWT_SECRET,
+    path: p,
+  });
 }
 
 let nestHandler;
 
-module.exports = (req, res) => {
-  const pathname = getPath(req);
+function loadNest() {
+  const file = path.join(process.cwd(), 'dist', 'vercel.js');
+  if (!fs.existsSync(file)) {
+    throw new Error(`Build incompleto: no existe ${file}`);
+  }
+  return require(file).handler;
+}
 
-  if (isHealth(pathname)) {
-    return sendJson(res, 200, {
-      ok: true,
-      dbHost: process.env.DB_HOST ?? null,
-      dbDatabase: process.env.DB_DATABASE ?? null,
-      hasJwtSecret: !!process.env.JWT_SECRET,
-    });
+module.exports = (req, res) => {
+  const p = pathOf(req);
+
+  if (isLightRoute(p)) {
+    return lightResponse(p, res);
   }
 
   (async () => {
     try {
-      if (!nestHandler) nestHandler = loadNestHandler();
+      if (!nestHandler) nestHandler = loadNest();
       await nestHandler(req, res);
     } catch (err) {
-      console.error('[api/index] Error:', err);
+      console.error('[api/index]', err);
       if (!res.headersSent) {
-        sendJson(res, 500, {
-          statusCode: 500,
-          message: err?.message ?? 'Error del servidor',
-        });
+        sendJson(res, 500, { statusCode: 500, message: err?.message || 'Error del servidor' });
       }
     }
   })();
