@@ -1,7 +1,6 @@
 'use strict';
 
-const path = require('path');
-const fs = require('fs');
+const { handler: nestHandler } = require('../dist/vercel.js');
 
 function sendJson(res, status, body) {
   res.statusCode = status;
@@ -43,24 +42,6 @@ function lightResponse(p, res) {
   });
 }
 
-function resolveVercelHandler() {
-  const candidates = [
-    path.join(__dirname, '..', 'serverless', 'dist', 'vercel.js'),
-    path.join(process.cwd(), 'serverless', 'dist', 'vercel.js'),
-    path.join(__dirname, '..', 'dist', 'vercel.js'),
-    path.join(process.cwd(), 'dist', 'vercel.js'),
-  ];
-  for (const file of candidates) {
-    if (fs.existsSync(file)) {
-      const mod = require(file);
-      return mod.handler || mod.default || mod;
-    }
-  }
-  throw new Error(`Build incompleto: falta serverless/dist/vercel.js (buscado en: ${candidates.join(', ')})`);
-}
-
-let nestHandler;
-
 module.exports = (req, res) => {
   const p = pathOf(req);
 
@@ -70,7 +51,6 @@ module.exports = (req, res) => {
 
   (async () => {
     try {
-      if (!nestHandler) nestHandler = resolveVercelHandler();
       await nestHandler(req, res);
     } catch (err) {
       console.error('[api/index]', err);
