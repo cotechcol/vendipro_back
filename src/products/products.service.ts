@@ -360,6 +360,11 @@ export class ProductsService {
       }
 
       const productPatch: Record<string, unknown> = { ...scalarFields };
+      if (existing.productType !== ProductType.PORTION) {
+        productPatch.scoopCount = null;
+        productPatch.variableScoops = false;
+        productPatch.scoopPrices = null;
+      }
       if (hasPortionOptions) {
         productPatch.baseProductId = null;
         productPatch.scoopCount = dto.scoopCount ?? existing.scoopCount;
