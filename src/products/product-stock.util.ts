@@ -24,6 +24,34 @@ async function loadOptionGroups(manager: EntityManager, productId: number): Prom
   });
 }
 
+async function expandIngredientDeductions(
+  manager: EntityManager,
+  ingredient: Product,
+  saleQty: number,
+  storeId: number,
+): Promise<StockDeduction[]> {
+  if (ingredient.productType === ProductType.COMPOSITE) {
+    const recipes = await manager.find(ProductRecipe, {
+      where: { productId: ingredient.id },
+      relations: ['ingredient'],
+    });
+    if (!recipes.length) {
+      throw new BadRequestException(`${ingredient.name} no tiene receta para usar como adicional`);
+    }
+    return recipes.map((line) => ({
+      productId: line.ingredientProductId,
+      productName: line.ingredient?.name ?? ingredient.name,
+      quantity: num(line.quantity) * saleQty,
+    }));
+  }
+
+  return [{
+    productId: ingredient.id,
+    productName: ingredient.name,
+    quantity: saleQty,
+  }];
+}
+
 async function planPortionWithOptions(
   manager: EntityManager,
   product: Product,
@@ -467,12 +495,15 @@ async function planAddonDeductions(
     if (!ingredient) {
       throw new BadRequestException(`Insumo de "${option.name}" no encontrado`);
     }
-    const deduct = num(option.quantity) * saleQty;
-    const prev = totals.get(ingredient.id);
-    totals.set(ingredient.id, {
-      name: ingredient.name,
-      quantity: (prev?.quantity ?? 0) + deduct,
-    });
+    const deductQty = num(option.quantity) * saleQty;
+    const lines = await expandIngredientDeductions(manager, ingredient, deductQty, storeId);
+    for (const line of lines) {
+      const prev = totals.get(line.productId);
+      totals.set(line.productId, {
+        name: line.productName,
+        quantity: (prev?.quantity ?? 0) + line.quantity,
+      });
+    }
   }
 
   return Array.from(totals.entries()).map(([productId, entry]) => ({

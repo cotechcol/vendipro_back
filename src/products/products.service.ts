@@ -454,7 +454,11 @@ export class ProductsService {
       }));
 
       for (const opt of groupDto.options) {
-        await this.validateIngredient(manager, opt.ingredientProductId, storeId);
+        if (isAddon) {
+          await this.validateAddonIngredient(manager, opt.ingredientProductId, storeId);
+        } else {
+          await this.validateIngredient(manager, opt.ingredientProductId, storeId);
+        }
         const quantity = opt.quantity
           ?? (groupDto.kind === OptionGroupKind.FLAVOR ? portionSize : 1);
         const unit = opt.unit
@@ -498,6 +502,16 @@ export class ProductsService {
     }
     if (![ProductType.BULK, ProductType.SIMPLE].includes(ingredient.productType)) {
       throw new BadRequestException(`${ingredient.name} no puede ser ingrediente`);
+    }
+  }
+
+  private async validateAddonIngredient(manager: EntityManager, ingredientId: number, storeId: number) {
+    const ingredient = await manager.findOne(Product, { where: { id: ingredientId, storeId } });
+    if (!ingredient) {
+      throw new BadRequestException(`Producto ${ingredientId} no encontrado para el adicional`);
+    }
+    if (![ProductType.BULK, ProductType.SIMPLE, ProductType.COMPOSITE].includes(ingredient.productType)) {
+      throw new BadRequestException(`${ingredient.name} no puede usarse como adicional`);
     }
   }
 
