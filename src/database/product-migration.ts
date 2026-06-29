@@ -32,6 +32,19 @@ async function columnExists(
   return rows.length > 0;
 }
 
+async function columnIsNullable(
+  connection: mysql.Connection,
+  table: string,
+  column: string,
+): Promise<boolean> {
+  const [rows] = await connection.query<mysql.RowDataPacket[]>(
+    `SELECT IS_NULLABLE FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [table, column],
+  );
+  return rows[0]?.IS_NULLABLE === 'YES';
+}
+
 /** Migración idempotente: columnas bulk/porción/compuesto y tabla product_recipes */
 export async function runProductMigration(): Promise<void> {
   const connection = await createConnection();
@@ -244,6 +257,33 @@ export async function runProductMigration(): Promise<void> {
           AFTER unit_cost
         `);
         console.log('[product-migration] Columna product_options.unit_price agregada');
+      }
+
+      if (!(await columnIsNullable(connection, 'product_options', 'ingredient_product_id'))) {
+        const [fkRows] = await connection.query<mysql.RowDataPacket[]>(
+          `SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
+           WHERE TABLE_SCHEMA = DATABASE()
+             AND TABLE_NAME = 'product_options'
+             AND COLUMN_NAME = 'ingredient_product_id'
+             AND REFERENCED_TABLE_NAME IS NOT NULL`,
+        );
+        for (const row of fkRows) {
+          await connection.query(
+            `ALTER TABLE product_options DROP FOREIGN KEY \`${row.CONSTRAINT_NAME}\``,
+          );
+        }
+        await connection.query(`
+          ALTER TABLE product_options
+          MODIFY COLUMN ingredient_product_id INT NULL
+        `);
+        if (fkRows.length > 0) {
+          await connection.query(`
+            ALTER TABLE product_options
+            ADD CONSTRAINT FK_product_options_ingredient
+              FOREIGN KEY (ingredient_product_id) REFERENCES products(id)
+          `);
+        }
+        console.log('[product-migration] product_options.ingredient_product_id ahora es opcional');
       }
     }
 

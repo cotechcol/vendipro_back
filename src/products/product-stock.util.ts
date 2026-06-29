@@ -98,6 +98,9 @@ async function planPortionWithOptions(
 
   for (const optionId of selectedOptionIds) {
     const { option } = optionMap.get(optionId)!;
+    if (!option.ingredientProductId) {
+      throw new BadRequestException(`"${option.name}" no tiene insumo configurado`);
+    }
     const ingredient = option.ingredient
       ?? await manager.findOne(Product, { where: { id: option.ingredientProductId, storeId } });
     if (!ingredient) {
@@ -334,6 +337,7 @@ async function sellableForPortionWithOptions(
     if (group.kind === OptionGroupKind.FLAVOR) {
       let maxFlavor = 0;
       for (const option of group.options ?? []) {
+        if (!option.ingredientProductId) continue;
         const ingredient = option.ingredient
           ?? await manager.findOne(Product, { where: { id: option.ingredientProductId } });
         if (!ingredient || num(option.quantity) <= 0) continue;
@@ -345,6 +349,7 @@ async function sellableForPortionWithOptions(
     if (group.kind === OptionGroupKind.CONTAINER) {
       let maxContainer = 0;
       for (const option of group.options ?? []) {
+        if (!option.ingredientProductId) continue;
         const ingredient = option.ingredient
           ?? await manager.findOne(Product, { where: { id: option.ingredientProductId } });
         if (!ingredient || num(option.quantity) <= 0) continue;
@@ -490,6 +495,8 @@ async function planAddonDeductions(
   const totals = new Map<number, { name: string; quantity: number }>();
   for (const optionId of selectedAddons) {
     const option = optionMap.get(optionId)!;
+    if (!option.ingredientProductId) continue;
+
     const ingredient = option.ingredient
       ?? await manager.findOne(Product, { where: { id: option.ingredientProductId, storeId } });
     if (!ingredient) {

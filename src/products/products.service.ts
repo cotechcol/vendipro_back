@@ -454,10 +454,16 @@ export class ProductsService {
       }));
 
       for (const opt of groupDto.options) {
+        const ingredientId = opt.ingredientProductId ? Number(opt.ingredientProductId) : null;
         if (isAddon) {
-          await this.validateAddonIngredient(manager, opt.ingredientProductId, storeId);
+          if (ingredientId) {
+            await this.validateAddonIngredient(manager, ingredientId, storeId);
+          }
         } else {
-          await this.validateIngredient(manager, opt.ingredientProductId, storeId);
+          if (!ingredientId) {
+            throw new BadRequestException(`"${opt.name}" requiere un insumo vinculado`);
+          }
+          await this.validateIngredient(manager, ingredientId, storeId);
         }
         const quantity = opt.quantity
           ?? (groupDto.kind === OptionGroupKind.FLAVOR ? portionSize : 1);
@@ -467,15 +473,17 @@ export class ProductsService {
         let unitCost = opt.unitCost !== undefined && opt.unitCost !== null
           ? Number(opt.unitCost)
           : null;
-        if (unitCost === null) {
+        if (unitCost === null && ingredientId) {
           const ingredient = await manager.findOne(Product, {
-            where: { id: opt.ingredientProductId, storeId },
+            where: { id: ingredientId, storeId },
           });
           if (ingredient) {
             unitCost = Number((Number(ingredient.costPrice) * Number(quantity)).toFixed(2));
           } else {
             unitCost = 0;
           }
+        } else if (unitCost === null) {
+          unitCost = 0;
         }
 
         const unitPrice = opt.unitPrice !== undefined && opt.unitPrice !== null
@@ -485,7 +493,7 @@ export class ProductsService {
         await manager.save(manager.create(ProductOption, {
           groupId: group.id,
           name: opt.name,
-          ingredientProductId: opt.ingredientProductId,
+          ingredientProductId: ingredientId,
           quantity,
           unit,
           unitCost,

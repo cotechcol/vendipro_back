@@ -24,12 +24,12 @@ export class ProductOption {
   @Column({ length: 100 })
   name: string;
 
-  @Column({ name: 'ingredient_product_id' })
-  ingredientProductId: number;
+  @Column({ name: 'ingredient_product_id', nullable: true })
+  ingredientProductId: number | null;
 
-  @ManyToOne(() => Product)
+  @ManyToOne(() => Product, { nullable: true })
   @JoinColumn({ name: 'ingredient_product_id' })
-  ingredient: Product;
+  ingredient: Product | null;
 
   @Column({ type: 'decimal', precision: 12, scale: 3 })
   quantity: number;

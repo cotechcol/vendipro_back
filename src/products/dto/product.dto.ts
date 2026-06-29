@@ -25,9 +25,10 @@ export class ProductOptionDto {
   @MinLength(1)
   name: string;
 
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
-  ingredientProductId: number;
+  ingredientProductId?: number | null;
 
   @IsOptional()
   @Type(() => Number)
