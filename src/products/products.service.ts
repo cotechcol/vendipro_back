@@ -173,11 +173,11 @@ export class ProductsService {
         }
         const flavorGroup = dto.optionGroups!.find((g) => g.kind === OptionGroupKind.FLAVOR);
         const containerGroup = dto.optionGroups!.find((g) => g.kind === OptionGroupKind.CONTAINER);
-        if (!flavorGroup?.options?.length) {
-          throw new BadRequestException('Agrega al menos un sabor');
-        }
         if (!containerGroup?.options?.length) {
           throw new BadRequestException('Agrega al menos un envase (galleta o vaso)');
+        }
+        if (flavorGroup?.options?.length) {
+          // Sabores opcionales en catálogo; ya no se exigen al vender
         }
       }
       if (!('portionSize' in dto) || !dto.portionSize) {
@@ -435,12 +435,12 @@ export class ProductsService {
       const isAddon = groupDto.kind === OptionGroupKind.ADDON;
       const isFlavor = groupDto.kind === OptionGroupKind.FLAVOR;
       const minSelect = isFlavor
-        ? (variableScoops ? 1 : scoopCount)
+        ? 0
         : isAddon
           ? 0
           : 1;
       const maxSelect = isFlavor
-        ? scoopCount
+        ? Math.max(groupDto.options?.length ?? 0, scoopCount)
         : isAddon
           ? Math.max(groupDto.options?.length ?? 0, 1)
           : minSelect;

@@ -105,16 +105,19 @@ export class SalesService {
         const reference = `SALE-${Date.now()}-${product.id}`;
         await applyStockDeductions(manager, deductions, storeId, userId, reference);
 
-        const unitPrice = calculateSaleUnitPrice(product, item.selectedOptionIds);
-        const unitCost = calculateSaleUnitCost(product, item.selectedOptionIds);
+        const unitPrice = calculateSaleUnitPrice(product, item.selectedOptionIds, item.portionScoopCount);
+        const unitCost = calculateSaleUnitCost(product, item.selectedOptionIds, item.portionScoopCount);
         const subtotal = unitPrice * item.quantity;
         totalWithTax += subtotal;
         profit += (unitPrice - unitCost) * item.quantity;
 
         let productName = product.name;
         let selectedOptions: { optionIds: number[]; labels: string[] } | null = null;
+        const labels: string[] = [];
+        if (item.portionScoopCount && item.portionScoopCount > 0) {
+          labels.push(`${item.portionScoopCount} bola${item.portionScoopCount > 1 ? 's' : ''}`);
+        }
         if (item.selectedOptionIds?.length) {
-          const labels: string[] = [];
           for (const group of product.optionGroups ?? []) {
             for (const option of group.options ?? []) {
               if (item.selectedOptionIds.includes(option.id)) {
@@ -122,10 +125,13 @@ export class SalesService {
               }
             }
           }
-          if (labels.length) {
-            productName = `${product.name} (${labels.join(', ')})`;
-            selectedOptions = { optionIds: item.selectedOptionIds, labels };
-          }
+        }
+        if (labels.length) {
+          productName = `${product.name} (${labels.join(', ')})`;
+          selectedOptions = {
+            optionIds: item.selectedOptionIds ?? [],
+            labels,
+          };
         }
 
         saleItems.push(

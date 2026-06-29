@@ -16,10 +16,15 @@ export class SaleItemDto {
 
   @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @Type(() => Number)
   @IsInt({ each: true })
   selectedOptionIds?: number[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  portionScoopCount?: number;
 }
 
 export class CreateSaleDto {

@@ -86,6 +86,7 @@ async function planPortionWithOptions(
   }
 
   for (const group of groups) {
+    if (group.kind === OptionGroupKind.FLAVOR) continue;
     const selected = byGroup.get(group.id) ?? [];
     if (selected.length < group.minSelect || selected.length > group.maxSelect) {
       throw new BadRequestException(
@@ -200,7 +201,7 @@ export async function planStockDeductions(
 
       if (groups.length > 0) {
         if (!selectedOptionIds?.length) {
-          throw new BadRequestException(`Selecciona sabor y envase para ${product.name}`);
+          throw new BadRequestException(`Selecciona envase para ${product.name}`);
         }
         return planPortionWithOptions(manager, product, saleQty, storeId, selectedOptionIds);
       }
@@ -527,6 +528,7 @@ async function planAddonDeductions(
 export function calculateSaleUnitCost(
   product: Product,
   selectedOptionIds?: number[],
+  _portionScoopCount?: number,
 ): number {
   const isComposite = product.productType === ProductType.COMPOSITE;
 
@@ -573,6 +575,7 @@ function countSelectedByKind(
 export function calculateSaleUnitPrice(
   product: Product,
   selectedOptionIds?: number[],
+  portionScoopCount?: number,
 ): number {
   let price = num(product.salePrice);
 
@@ -580,11 +583,11 @@ export function calculateSaleUnitPrice(
     product.productType === ProductType.PORTION
     && product.variableScoops
     && product.scoopPrices?.length
-    && selectedOptionIds?.length
   ) {
     const flavorCount = countSelectedByKind(product, selectedOptionIds, OptionGroupKind.FLAVOR);
-    if (flavorCount > 0) {
-      price = num(product.scoopPrices[flavorCount - 1] ?? product.salePrice);
+    const scoops = portionScoopCount ?? (flavorCount > 0 ? flavorCount : 0);
+    if (scoops > 0) {
+      price = num(product.scoopPrices[scoops - 1] ?? product.salePrice);
     }
   }
 

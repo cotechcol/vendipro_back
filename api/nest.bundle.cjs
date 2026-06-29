@@ -3251,6 +3251,8 @@ var require_product_stock_util = __commonJS({
         byGroup.set(entry.group.id, list);
       }
       for (const group of groups) {
+        if (group.kind === enums_1.OptionGroupKind.FLAVOR)
+          continue;
         const selected = byGroup.get(group.id) ?? [];
         if (selected.length < group.minSelect || selected.length > group.maxSelect) {
           throw new common_1.BadRequestException(`Selecciona ${group.minSelect} opci\xF3n(es) de "${group.name}"`);
@@ -3331,7 +3333,7 @@ var require_product_stock_util = __commonJS({
           const groups = product.optionGroups?.length ? product.optionGroups : await loadOptionGroups(manager, product.id);
           if (groups.length > 0) {
             if (!selectedOptionIds?.length) {
-              throw new common_1.BadRequestException(`Selecciona sabor y envase para ${product.name}`);
+              throw new common_1.BadRequestException(`Selecciona envase para ${product.name}`);
             }
             return planPortionWithOptions(manager, product, saleQty, storeId, selectedOptionIds);
           }
@@ -3580,7 +3582,7 @@ var require_product_stock_util = __commonJS({
         quantity: entry.quantity
       }));
     }
-    function calculateSaleUnitCost(product, selectedOptionIds) {
+    function calculateSaleUnitCost(product, selectedOptionIds, _portionScoopCount) {
       const isComposite = product.productType === enums_1.ProductType.COMPOSITE;
       if (!selectedOptionIds?.length || !product.optionGroups?.length) {
         return num(product.costPrice);
@@ -3615,12 +3617,13 @@ var require_product_stock_util = __commonJS({
       }
       return selectedOptionIds.filter((id) => ids.has(id)).length;
     }
-    function calculateSaleUnitPrice(product, selectedOptionIds) {
+    function calculateSaleUnitPrice(product, selectedOptionIds, portionScoopCount) {
       let price = num(product.salePrice);
-      if (product.productType === enums_1.ProductType.PORTION && product.variableScoops && product.scoopPrices?.length && selectedOptionIds?.length) {
+      if (product.productType === enums_1.ProductType.PORTION && product.variableScoops && product.scoopPrices?.length) {
         const flavorCount = countSelectedByKind(product, selectedOptionIds, enums_1.OptionGroupKind.FLAVOR);
-        if (flavorCount > 0) {
-          price = num(product.scoopPrices[flavorCount - 1] ?? product.salePrice);
+        const scoops = portionScoopCount ?? (flavorCount > 0 ? flavorCount : 0);
+        if (scoops > 0) {
+          price = num(product.scoopPrices[scoops - 1] ?? product.salePrice);
         }
       }
       if (!selectedOptionIds?.length || !product.optionGroups?.length) {
@@ -3919,11 +3922,10 @@ var require_products_service = __commonJS({
             }
             const flavorGroup = dto.optionGroups.find((g) => g.kind === enums_1.OptionGroupKind.FLAVOR);
             const containerGroup = dto.optionGroups.find((g) => g.kind === enums_1.OptionGroupKind.CONTAINER);
-            if (!flavorGroup?.options?.length) {
-              throw new common_1.BadRequestException("Agrega al menos un sabor");
-            }
             if (!containerGroup?.options?.length) {
               throw new common_1.BadRequestException("Agrega al menos un envase (galleta o vaso)");
+            }
+            if (flavorGroup?.options?.length) {
             }
           }
           if (!("portionSize" in dto) || !dto.portionSize) {
@@ -4098,8 +4100,8 @@ var require_products_service = __commonJS({
         for (const groupDto of groups ?? []) {
           const isAddon = groupDto.kind === enums_1.OptionGroupKind.ADDON;
           const isFlavor = groupDto.kind === enums_1.OptionGroupKind.FLAVOR;
-          const minSelect = isFlavor ? variableScoops ? 1 : scoopCount : isAddon ? 0 : 1;
-          const maxSelect = isFlavor ? scoopCount : isAddon ? Math.max(groupDto.options?.length ?? 0, 1) : minSelect;
+          const minSelect = isFlavor ? 0 : isAddon ? 0 : 1;
+          const maxSelect = isFlavor ? Math.max(groupDto.options?.length ?? 0, scoopCount) : isAddon ? Math.max(groupDto.options?.length ?? 0, 1) : minSelect;
           const group = await manager.save(manager.create(product_option_group_entity_1.ProductOptionGroup, {
             productId,
             name: groupDto.name,
@@ -23525,15 +23527,18 @@ var require_sales_service = __commonJS({
             const deductions = await (0, product_stock_util_1.planStockDeductions)(manager, product, item.quantity, storeId, item.selectedOptionIds);
             const reference = `SALE-${Date.now()}-${product.id}`;
             await (0, product_stock_util_1.applyStockDeductions)(manager, deductions, storeId, userId, reference);
-            const unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, item.selectedOptionIds);
-            const unitCost = (0, product_stock_util_1.calculateSaleUnitCost)(product, item.selectedOptionIds);
+            const unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, item.selectedOptionIds, item.portionScoopCount);
+            const unitCost = (0, product_stock_util_1.calculateSaleUnitCost)(product, item.selectedOptionIds, item.portionScoopCount);
             const subtotal2 = unitPrice * item.quantity;
             totalWithTax += subtotal2;
             profit += (unitPrice - unitCost) * item.quantity;
             let productName = product.name;
             let selectedOptions = null;
+            const labels = [];
+            if (item.portionScoopCount && item.portionScoopCount > 0) {
+              labels.push(`${item.portionScoopCount} bola${item.portionScoopCount > 1 ? "s" : ""}`);
+            }
             if (item.selectedOptionIds?.length) {
-              const labels = [];
               for (const group of product.optionGroups ?? []) {
                 for (const option of group.options ?? []) {
                   if (item.selectedOptionIds.includes(option.id)) {
@@ -23541,10 +23546,13 @@ var require_sales_service = __commonJS({
                   }
                 }
               }
-              if (labels.length) {
-                productName = `${product.name} (${labels.join(", ")})`;
-                selectedOptions = { optionIds: item.selectedOptionIds, labels };
-              }
+            }
+            if (labels.length) {
+              productName = `${product.name} (${labels.join(", ")})`;
+              selectedOptions = {
+                optionIds: item.selectedOptionIds ?? [],
+                labels
+              };
             }
             saleItems.push(manager.create(sale_item_entity_1.SaleItem, {
               productId: product.id,
@@ -23621,6 +23629,7 @@ var require_sale_dto = __commonJS({
       productId;
       quantity;
       selectedOptionIds;
+      portionScoopCount;
     };
     exports2.SaleItemDto = SaleItemDto;
     __decorate([
@@ -23637,11 +23646,17 @@ var require_sale_dto = __commonJS({
     __decorate([
       (0, class_validator_1.IsOptional)(),
       (0, class_validator_1.IsArray)(),
-      (0, class_validator_1.ArrayMinSize)(1),
       (0, class_transformer_1.Type)(() => Number),
       (0, class_validator_1.IsInt)({ each: true }),
       __metadata("design:type", Array)
     ], SaleItemDto.prototype, "selectedOptionIds", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      (0, class_validator_1.Min)(1),
+      __metadata("design:type", Number)
+    ], SaleItemDto.prototype, "portionScoopCount", void 0);
     var CreateSaleDto = class {
       items;
       customerId;
