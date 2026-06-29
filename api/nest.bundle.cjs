@@ -853,13 +853,13 @@ var require_product_option_entity = __commonJS({
       __metadata("design:type", String)
     ], ProductOption.prototype, "name", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "ingredient_product_id" }),
-      __metadata("design:type", Number)
+      (0, typeorm_1.Column)({ name: "ingredient_product_id", nullable: true }),
+      __metadata("design:type", Object)
     ], ProductOption.prototype, "ingredientProductId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => product_entity_1.Product),
+      (0, typeorm_1.ManyToOne)(() => product_entity_1.Product, { nullable: true }),
       (0, typeorm_1.JoinColumn)({ name: "ingredient_product_id" }),
-      __metadata("design:type", product_entity_1.Product)
+      __metadata("design:type", Object)
     ], ProductOption.prototype, "ingredient", void 0);
     __decorate([
       (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 3 }),
@@ -3208,6 +3208,27 @@ var require_product_stock_util = __commonJS({
         order: { sortOrder: "ASC", id: "ASC" }
       });
     }
+    async function expandIngredientDeductions(manager, ingredient, saleQty, storeId) {
+      if (ingredient.productType === enums_1.ProductType.COMPOSITE) {
+        const recipes = await manager.find(product_recipe_entity_1.ProductRecipe, {
+          where: { productId: ingredient.id },
+          relations: ["ingredient"]
+        });
+        if (!recipes.length) {
+          throw new common_1.BadRequestException(`${ingredient.name} no tiene receta para usar como adicional`);
+        }
+        return recipes.map((line) => ({
+          productId: line.ingredientProductId,
+          productName: line.ingredient?.name ?? ingredient.name,
+          quantity: num(line.quantity) * saleQty
+        }));
+      }
+      return [{
+        productId: ingredient.id,
+        productName: ingredient.name,
+        quantity: saleQty
+      }];
+    }
     async function planPortionWithOptions(manager, product, saleQty, storeId, selectedOptionIds) {
       const groups = product.optionGroups?.length ? product.optionGroups : await loadOptionGroups(manager, product.id);
       if (groups.length === 0) {
@@ -3238,6 +3259,8 @@ var require_product_stock_util = __commonJS({
       const totals = /* @__PURE__ */ new Map();
       for (const optionId of selectedOptionIds) {
         const { option } = optionMap.get(optionId);
+        if (!option.ingredientProductId)
+          continue;
         const ingredient = option.ingredient ?? await manager.findOne(product_entity_1.Product, { where: { id: option.ingredientProductId, storeId } });
         if (!ingredient) {
           throw new common_1.BadRequestException(`Insumo de "${option.name}" no encontrado`);
@@ -3401,31 +3424,40 @@ var require_product_stock_util = __commonJS({
         return 0;
       const scoopCount = product.scoopCount ?? 1;
       const minScoops = product.variableScoops ? 1 : scoopCount;
-      let flavorUnits = Infinity;
-      let containerUnits = Infinity;
+      const limits = [];
       for (const group of groups) {
         if (group.kind === enums_1.OptionGroupKind.FLAVOR) {
-          let maxFlavor = 0;
+          let maxFlavor = -1;
           for (const option of group.options ?? []) {
+            if (!option.ingredientProductId)
+              continue;
             const ingredient = option.ingredient ?? await manager.findOne(product_entity_1.Product, { where: { id: option.ingredientProductId } });
             if (!ingredient || num(option.quantity) <= 0)
               continue;
             maxFlavor = Math.max(maxFlavor, Math.floor(num(ingredient.stock) / num(option.quantity)));
           }
-          flavorUnits = Math.floor(maxFlavor / minScoops);
+          if (maxFlavor >= 0) {
+            limits.push(Math.floor(maxFlavor / minScoops));
+          }
         }
         if (group.kind === enums_1.OptionGroupKind.CONTAINER) {
-          let maxContainer = 0;
+          let maxContainer = -1;
           for (const option of group.options ?? []) {
+            if (!option.ingredientProductId)
+              continue;
             const ingredient = option.ingredient ?? await manager.findOne(product_entity_1.Product, { where: { id: option.ingredientProductId } });
             if (!ingredient || num(option.quantity) <= 0)
               continue;
             maxContainer = Math.max(maxContainer, Math.floor(num(ingredient.stock) / num(option.quantity)));
           }
-          containerUnits = maxContainer;
+          if (maxContainer >= 0) {
+            limits.push(maxContainer);
+          }
         }
       }
-      return Math.min(flavorUnits === Infinity ? 0 : flavorUnits, containerUnits === Infinity ? 0 : containerUnits);
+      if (!limits.length)
+        return 9999;
+      return Math.min(...limits);
     }
     async function getSellableUnits(manager, product) {
       switch (product.productType) {
@@ -3526,16 +3558,21 @@ var require_product_stock_util = __commonJS({
       const totals = /* @__PURE__ */ new Map();
       for (const optionId of selectedAddons) {
         const option = optionMap.get(optionId);
+        if (!option.ingredientProductId)
+          continue;
         const ingredient = option.ingredient ?? await manager.findOne(product_entity_1.Product, { where: { id: option.ingredientProductId, storeId } });
         if (!ingredient) {
           throw new common_1.BadRequestException(`Insumo de "${option.name}" no encontrado`);
         }
-        const deduct = num(option.quantity) * saleQty;
-        const prev = totals.get(ingredient.id);
-        totals.set(ingredient.id, {
-          name: ingredient.name,
-          quantity: (prev?.quantity ?? 0) + deduct
-        });
+        const deductQty = num(option.quantity) * saleQty;
+        const lines = await expandIngredientDeductions(manager, ingredient, deductQty, storeId);
+        for (const line of lines) {
+          const prev = totals.get(line.productId);
+          totals.set(line.productId, {
+            name: line.productName,
+            quantity: (prev?.quantity ?? 0) + line.quantity
+          });
+        }
       }
       return Array.from(totals.entries()).map(([productId, entry]) => ({
         productId,
@@ -4021,6 +4058,11 @@ var require_products_service = __commonJS({
             await manager.delete(product_recipe_entity_1.ProductRecipe, { productId: existing.id });
           }
           const productPatch = { ...scalarFields };
+          if (existing.productType !== enums_1.ProductType.PORTION) {
+            productPatch.scoopCount = null;
+            productPatch.variableScoops = false;
+            productPatch.scoopPrices = null;
+          }
           if (hasPortionOptions) {
             productPatch.baseProductId = null;
             productPatch.scoopCount = dto.scoopCount ?? existing.scoopCount;
@@ -4067,25 +4109,34 @@ var require_products_service = __commonJS({
             sortOrder: sortOrder++
           }));
           for (const opt of groupDto.options) {
-            await this.validateIngredient(manager, opt.ingredientProductId, storeId);
+            const ingredientId = opt.ingredientProductId ? Number(opt.ingredientProductId) : null;
+            if (isAddon) {
+              if (ingredientId) {
+                await this.validateAddonIngredient(manager, ingredientId, storeId);
+              }
+            } else if (ingredientId) {
+              await this.validateIngredient(manager, ingredientId, storeId);
+            }
             const quantity = opt.quantity ?? (groupDto.kind === enums_1.OptionGroupKind.FLAVOR ? portionSize : 1);
             const unit = opt.unit ?? (groupDto.kind === enums_1.OptionGroupKind.FLAVOR ? portionUnit : enums_1.StockUnit.UNIT);
             let unitCost = opt.unitCost !== void 0 && opt.unitCost !== null ? Number(opt.unitCost) : null;
-            if (unitCost === null) {
+            if (unitCost === null && ingredientId) {
               const ingredient = await manager.findOne(product_entity_1.Product, {
-                where: { id: opt.ingredientProductId, storeId }
+                where: { id: ingredientId, storeId }
               });
               if (ingredient) {
                 unitCost = Number((Number(ingredient.costPrice) * Number(quantity)).toFixed(2));
               } else {
                 unitCost = 0;
               }
+            } else if (unitCost === null) {
+              unitCost = 0;
             }
             const unitPrice = opt.unitPrice !== void 0 && opt.unitPrice !== null ? Number(opt.unitPrice) : 0;
             await manager.save(manager.create(product_option_entity_1.ProductOption, {
               groupId: group.id,
               name: opt.name,
-              ingredientProductId: opt.ingredientProductId,
+              ingredientProductId: ingredientId,
               quantity,
               unit,
               unitCost,
@@ -4101,6 +4152,15 @@ var require_products_service = __commonJS({
         }
         if (![enums_1.ProductType.BULK, enums_1.ProductType.SIMPLE].includes(ingredient.productType)) {
           throw new common_1.BadRequestException(`${ingredient.name} no puede ser ingrediente`);
+        }
+      }
+      async validateAddonIngredient(manager, ingredientId, storeId) {
+        const ingredient = await manager.findOne(product_entity_1.Product, { where: { id: ingredientId, storeId } });
+        if (!ingredient) {
+          throw new common_1.BadRequestException(`Producto ${ingredientId} no encontrado para el adicional`);
+        }
+        if (![enums_1.ProductType.BULK, enums_1.ProductType.SIMPLE, enums_1.ProductType.COMPOSITE].includes(ingredient.productType)) {
+          throw new common_1.BadRequestException(`${ingredient.name} no puede usarse como adicional`);
         }
       }
       async remove(id, ctx) {
@@ -20972,7 +21032,13 @@ var require_product_dto = __commonJS({
       __metadata("design:type", String)
     ], ProductOptionDto.prototype, "name", void 0);
     __decorate([
-      (0, class_transformer_1.Type)(() => Number),
+      (0, class_transformer_1.Transform)(({ value }) => {
+        if (value === null || value === void 0 || value === "" || value === 0)
+          return void 0;
+        const n = Number(value);
+        return Number.isFinite(n) ? n : void 0;
+      }),
+      (0, class_validator_1.IsOptional)(),
       (0, class_validator_1.IsInt)(),
       __metadata("design:type", Number)
     ], ProductOptionDto.prototype, "ingredientProductId", void 0);

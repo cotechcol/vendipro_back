@@ -2,7 +2,7 @@ import {
   IsString, IsOptional, IsBoolean, IsNumber, IsInt, Min, MinLength,
   IsEnum, IsArray, ValidateNested, ValidateIf,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { ProductType, StockUnit, OptionGroupKind } from '../../common/enums';
 
 export class RecipeItemDto {
@@ -25,10 +25,14 @@ export class ProductOptionDto {
   @MinLength(1)
   name: string;
 
+  @Transform(({ value }) => {
+    if (value === null || value === undefined || value === '' || value === 0) return undefined;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+  })
   @IsOptional()
-  @Type(() => Number)
   @IsInt()
-  ingredientProductId?: number | null;
+  ingredientProductId?: number;
 
   @IsOptional()
   @Type(() => Number)
