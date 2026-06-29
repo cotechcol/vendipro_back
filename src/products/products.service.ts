@@ -459,10 +459,7 @@ export class ProductsService {
           if (ingredientId) {
             await this.validateAddonIngredient(manager, ingredientId, storeId);
           }
-        } else {
-          if (!ingredientId) {
-            throw new BadRequestException(`"${opt.name}" requiere un insumo vinculado`);
-          }
+        } else if (ingredientId) {
           await this.validateIngredient(manager, ingredientId, storeId);
         }
         const quantity = opt.quantity

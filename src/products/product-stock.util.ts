@@ -98,9 +98,8 @@ async function planPortionWithOptions(
 
   for (const optionId of selectedOptionIds) {
     const { option } = optionMap.get(optionId)!;
-    if (!option.ingredientProductId) {
-      throw new BadRequestException(`"${option.name}" no tiene insumo configurado`);
-    }
+    if (!option.ingredientProductId) continue;
+
     const ingredient = option.ingredient
       ?? await manager.findOne(Product, { where: { id: option.ingredientProductId, storeId } });
     if (!ingredient) {
@@ -330,12 +329,11 @@ async function sellableForPortionWithOptions(
 
   const scoopCount = product.scoopCount ?? 1;
   const minScoops = product.variableScoops ? 1 : scoopCount;
-  let flavorUnits = Infinity;
-  let containerUnits = Infinity;
+  const limits: number[] = [];
 
   for (const group of groups) {
     if (group.kind === OptionGroupKind.FLAVOR) {
-      let maxFlavor = 0;
+      let maxFlavor = -1;
       for (const option of group.options ?? []) {
         if (!option.ingredientProductId) continue;
         const ingredient = option.ingredient
@@ -343,11 +341,13 @@ async function sellableForPortionWithOptions(
         if (!ingredient || num(option.quantity) <= 0) continue;
         maxFlavor = Math.max(maxFlavor, Math.floor(num(ingredient.stock) / num(option.quantity)));
       }
-      flavorUnits = Math.floor(maxFlavor / minScoops);
+      if (maxFlavor >= 0) {
+        limits.push(Math.floor(maxFlavor / minScoops));
+      }
     }
 
     if (group.kind === OptionGroupKind.CONTAINER) {
-      let maxContainer = 0;
+      let maxContainer = -1;
       for (const option of group.options ?? []) {
         if (!option.ingredientProductId) continue;
         const ingredient = option.ingredient
@@ -358,11 +358,14 @@ async function sellableForPortionWithOptions(
           Math.floor(num(ingredient.stock) / num(option.quantity)),
         );
       }
-      containerUnits = maxContainer;
+      if (maxContainer >= 0) {
+        limits.push(maxContainer);
+      }
     }
   }
 
-  return Math.min(flavorUnits === Infinity ? 0 : flavorUnits, containerUnits === Infinity ? 0 : containerUnits);
+  if (!limits.length) return 9999;
+  return Math.min(...limits);
 }
 
 /** Unidades vendibles en POS (simple, porción o compuesto según disponibilidad) */
