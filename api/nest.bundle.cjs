@@ -995,6 +995,8 @@ var require_product_entity = __commonJS({
       baseProduct;
       portionSize;
       scoopCount;
+      variableScoops;
+      scoopPrices;
       salePrice;
       costPrice;
       stock;
@@ -1066,6 +1068,14 @@ var require_product_entity = __commonJS({
       (0, typeorm_1.Column)({ name: "scoop_count", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], Product.prototype, "scoopCount", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "variable_scoops", default: false }),
+      __metadata("design:type", Boolean)
+    ], Product.prototype, "variableScoops", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "scoop_prices", type: "json", nullable: true }),
+      __metadata("design:type", Object)
+    ], Product.prototype, "scoopPrices", void 0);
     __decorate([
       (0, typeorm_1.Column)({ name: "sale_price", type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
@@ -3255,6 +3265,38 @@ var require_product_stock_util = __commonJS({
       }
       switch (product.productType) {
         case enums_1.ProductType.SIMPLE: {
+          const groups = product.optionGroups?.length ? product.optionGroups : await loadOptionGroups(manager, product.id);
+          const hasAddons = groups.some((g) => g.kind === enums_1.OptionGroupKind.ADDON);
+          if (hasAddons) {
+            if (num(product.stock) < saleQty) {
+              throw new common_1.BadRequestException(`Stock insuficiente para ${product.name}`);
+            }
+            const deductions = [{
+              productId: product.id,
+              productName: product.name,
+              quantity: saleQty
+            }];
+            if (selectedOptionIds?.length) {
+              const addonDeductions = await planAddonDeductions(manager, product, saleQty, storeId, selectedOptionIds);
+              for (const addon of addonDeductions) {
+                const existing = deductions.find((d) => d.productId === addon.productId);
+                if (existing) {
+                  existing.quantity += addon.quantity;
+                } else {
+                  deductions.push(addon);
+                }
+              }
+              for (const d of deductions) {
+                if (d.productId === product.id)
+                  continue;
+                const ingredient = await manager.findOne(product_entity_1.Product, { where: { id: d.productId, storeId } });
+                if (!ingredient || num(ingredient.stock) < d.quantity) {
+                  throw new common_1.BadRequestException(`Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ""})`);
+                }
+              }
+            }
+            return deductions;
+          }
           if (num(product.stock) < saleQty) {
             throw new common_1.BadRequestException(`Stock insuficiente para ${product.name}`);
           }
@@ -3358,6 +3400,7 @@ var require_product_stock_util = __commonJS({
       if (groups.length === 0 || !product.portionSize)
         return 0;
       const scoopCount = product.scoopCount ?? 1;
+      const minScoops = product.variableScoops ? 1 : scoopCount;
       let flavorUnits = Infinity;
       let containerUnits = Infinity;
       for (const group of groups) {
@@ -3369,7 +3412,7 @@ var require_product_stock_util = __commonJS({
               continue;
             maxFlavor = Math.max(maxFlavor, Math.floor(num(ingredient.stock) / num(option.quantity)));
           }
-          flavorUnits = Math.floor(maxFlavor / scoopCount);
+          flavorUnits = Math.floor(maxFlavor / minScoops);
         }
         if (group.kind === enums_1.OptionGroupKind.CONTAINER) {
           let maxContainer = 0;
@@ -3522,8 +3565,27 @@ var require_product_stock_util = __commonJS({
       }
       return Number(total.toFixed(2));
     }
+    function countSelectedByKind(product, selectedOptionIds, kind) {
+      if (!selectedOptionIds?.length || !product.optionGroups?.length)
+        return 0;
+      const ids = /* @__PURE__ */ new Set();
+      for (const group of product.optionGroups) {
+        if (group.kind !== kind)
+          continue;
+        for (const option of group.options ?? []) {
+          ids.add(option.id);
+        }
+      }
+      return selectedOptionIds.filter((id) => ids.has(id)).length;
+    }
     function calculateSaleUnitPrice(product, selectedOptionIds) {
       let price = num(product.salePrice);
+      if (product.productType === enums_1.ProductType.PORTION && product.variableScoops && product.scoopPrices?.length && selectedOptionIds?.length) {
+        const flavorCount = countSelectedByKind(product, selectedOptionIds, enums_1.OptionGroupKind.FLAVOR);
+        if (flavorCount > 0) {
+          price = num(product.scoopPrices[flavorCount - 1] ?? product.salePrice);
+        }
+      }
       if (!selectedOptionIds?.length || !product.optionGroups?.length) {
         return price;
       }
@@ -3839,6 +3901,11 @@ var require_products_service = __commonJS({
             throw new common_1.BadRequestException("Los productos compuestos solo admiten adicionales");
           }
         }
+        if (type === enums_1.ProductType.SIMPLE) {
+          if (dto.optionGroups?.some((g) => g.kind !== enums_1.OptionGroupKind.ADDON)) {
+            throw new common_1.BadRequestException("Los productos por unidad solo admiten adicionales");
+          }
+        }
         if (type === enums_1.ProductType.BULK && !dto.stockUnit) {
           throw new common_1.BadRequestException("Indica la unidad del insumo (g, ml o uds)");
         }
@@ -3868,6 +3935,8 @@ var require_products_service = __commonJS({
             salePrice: productType === enums_1.ProductType.BULK ? 0 : dto.salePrice,
             baseProductId: hasOptions ? null : dto.baseProductId ?? null,
             scoopCount: hasOptions ? dto.scoopCount : null,
+            variableScoops: hasOptions ? dto.variableScoops ?? false : false,
+            scoopPrices: hasOptions && dto.variableScoops ? dto.scoopPrices ?? null : null,
             visibleInPos: dto.visibleInPos ?? productType !== enums_1.ProductType.BULK
           });
           const saved = await manager.save(product);
@@ -3884,9 +3953,11 @@ var require_products_service = __commonJS({
             }
           }
           if (hasOptions && dto.optionGroups) {
-            await this.saveOptionGroups(manager, saved.id, dto.optionGroups, dto.portionSize, dto.scoopCount, storeId, dto.stockUnit ?? enums_1.StockUnit.G);
+            await this.saveOptionGroups(manager, saved.id, dto.optionGroups, dto.portionSize, dto.scoopCount, storeId, dto.stockUnit ?? enums_1.StockUnit.G, dto.variableScoops ?? false);
           } else if (productType === enums_1.ProductType.COMPOSITE && dto.optionGroups?.length) {
-            await this.saveOptionGroups(manager, saved.id, dto.optionGroups, 1, 1, storeId, enums_1.StockUnit.UNIT);
+            await this.saveOptionGroups(manager, saved.id, dto.optionGroups, 1, 1, storeId, enums_1.StockUnit.UNIT, false);
+          } else if (productType === enums_1.ProductType.SIMPLE && dto.optionGroups?.length) {
+            await this.saveOptionGroups(manager, saved.id, dto.optionGroups, 1, 1, storeId, enums_1.StockUnit.UNIT, false);
           }
         });
         return this.findOne(savedId, ctx);
@@ -3915,10 +3986,17 @@ var require_products_service = __commonJS({
             throw new common_1.BadRequestException("Los productos compuestos solo admiten adicionales");
           }
         }
+        if (existing.productType === enums_1.ProductType.SIMPLE && dto.optionGroups) {
+          const invalid = dto.optionGroups.some((g) => g.kind !== enums_1.OptionGroupKind.ADDON);
+          if (invalid) {
+            throw new common_1.BadRequestException("Los productos por unidad solo admiten adicionales");
+          }
+        }
         await this.dataSource.transaction(async (manager) => {
           const { recipe, optionGroups, ...scalarFields } = dto;
           const hasPortionOptions = optionGroups?.length && existing.productType === enums_1.ProductType.PORTION;
           const hasCompositeAddons = optionGroups !== void 0 && existing.productType === enums_1.ProductType.COMPOSITE;
+          const hasSimpleAddons = optionGroups !== void 0 && existing.productType === enums_1.ProductType.SIMPLE;
           if (hasPortionOptions) {
             const oldGroups = await manager.find(product_option_group_entity_1.ProductOptionGroup, {
               where: { productId: existing.id },
@@ -3929,7 +4007,7 @@ var require_products_service = __commonJS({
               await manager.delete(product_option_group_entity_1.ProductOptionGroup, { productId: existing.id });
             }
           }
-          if (hasCompositeAddons) {
+          if (hasCompositeAddons || hasSimpleAddons) {
             const oldGroups = await manager.find(product_option_group_entity_1.ProductOptionGroup, {
               where: { productId: existing.id },
               select: ["id"]
@@ -3946,6 +4024,8 @@ var require_products_service = __commonJS({
           if (hasPortionOptions) {
             productPatch.baseProductId = null;
             productPatch.scoopCount = dto.scoopCount ?? existing.scoopCount;
+            productPatch.variableScoops = dto.variableScoops ?? existing.variableScoops;
+            productPatch.scoopPrices = dto.variableScoops ? dto.scoopPrices ?? existing.scoopPrices : null;
           }
           if (Object.keys(productPatch).length > 0) {
             await manager.update(product_entity_1.Product, { id: existing.id }, productPatch);
@@ -3963,20 +4043,21 @@ var require_products_service = __commonJS({
           }
           if (hasPortionOptions && optionGroups) {
             const portionUnit = dto.stockUnit ?? existing.stockUnit;
-            await this.saveOptionGroups(manager, existing.id, optionGroups, dto.portionSize ?? Number(existing.portionSize), dto.scoopCount ?? existing.scoopCount ?? 1, existing.storeId, portionUnit);
+            await this.saveOptionGroups(manager, existing.id, optionGroups, dto.portionSize ?? Number(existing.portionSize), dto.scoopCount ?? existing.scoopCount ?? 1, existing.storeId, portionUnit, dto.variableScoops ?? existing.variableScoops ?? false);
           }
-          if (hasCompositeAddons && optionGroups) {
-            await this.saveOptionGroups(manager, existing.id, optionGroups, 1, 1, existing.storeId, enums_1.StockUnit.UNIT);
+          if ((hasCompositeAddons || hasSimpleAddons) && optionGroups) {
+            await this.saveOptionGroups(manager, existing.id, optionGroups, 1, 1, existing.storeId, enums_1.StockUnit.UNIT, false);
           }
         });
         return this.findOne(existing.id, ctx);
       }
-      async saveOptionGroups(manager, productId, groups, portionSize, scoopCount, storeId, portionUnit = enums_1.StockUnit.G) {
+      async saveOptionGroups(manager, productId, groups, portionSize, scoopCount, storeId, portionUnit = enums_1.StockUnit.G, variableScoops = false) {
         let sortOrder = 0;
         for (const groupDto of groups ?? []) {
           const isAddon = groupDto.kind === enums_1.OptionGroupKind.ADDON;
-          const minSelect = groupDto.kind === enums_1.OptionGroupKind.FLAVOR ? scoopCount : isAddon ? 0 : 1;
-          const maxSelect = isAddon ? Math.max(groupDto.options?.length ?? 0, 1) : minSelect;
+          const isFlavor = groupDto.kind === enums_1.OptionGroupKind.FLAVOR;
+          const minSelect = isFlavor ? variableScoops ? 1 : scoopCount : isAddon ? 0 : 1;
+          const maxSelect = isFlavor ? scoopCount : isAddon ? Math.max(groupDto.options?.length ?? 0, 1) : minSelect;
           const group = await manager.save(manager.create(product_option_group_entity_1.ProductOptionGroup, {
             productId,
             name: groupDto.name,
@@ -20951,6 +21032,8 @@ var require_product_dto = __commonJS({
       baseProductId;
       portionSize;
       scoopCount;
+      variableScoops;
+      scoopPrices;
       optionGroups;
       salePrice;
       costPrice;
@@ -21008,6 +21091,18 @@ var require_product_dto = __commonJS({
     ], CreateProductDto.prototype, "scoopCount", void 0);
     __decorate([
       (0, class_validator_1.ValidateIf)((o) => o.productType === enums_1.ProductType.PORTION && o.optionGroups?.length),
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsBoolean)(),
+      __metadata("design:type", Boolean)
+    ], CreateProductDto.prototype, "variableScoops", void 0);
+    __decorate([
+      (0, class_validator_1.ValidateIf)((o) => o.productType === enums_1.ProductType.PORTION && o.variableScoops),
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsArray)(),
+      __metadata("design:type", Array)
+    ], CreateProductDto.prototype, "scoopPrices", void 0);
+    __decorate([
+      (0, class_validator_1.ValidateIf)((o) => o.productType === enums_1.ProductType.PORTION && o.optionGroups?.length || o.productType === enums_1.ProductType.COMPOSITE || o.productType === enums_1.ProductType.SIMPLE && o.optionGroups?.length),
       (0, class_validator_1.IsArray)(),
       (0, class_validator_1.ValidateNested)({ each: true }),
       (0, class_transformer_1.Type)(() => ProductOptionGroupDto),
@@ -21070,6 +21165,8 @@ var require_product_dto = __commonJS({
       minStock;
       categoryId;
       scoopCount;
+      variableScoops;
+      scoopPrices;
       optionGroups;
       active;
       visibleInPos;
@@ -21143,6 +21240,16 @@ var require_product_dto = __commonJS({
       (0, class_validator_1.Min)(1),
       __metadata("design:type", Number)
     ], UpdateProductDto.prototype, "scoopCount", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsBoolean)(),
+      __metadata("design:type", Boolean)
+    ], UpdateProductDto.prototype, "variableScoops", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsArray)(),
+      __metadata("design:type", Array)
+    ], UpdateProductDto.prototype, "scoopPrices", void 0);
     __decorate([
       (0, class_validator_1.IsOptional)(),
       (0, class_validator_1.IsArray)(),

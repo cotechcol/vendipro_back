@@ -192,6 +192,11 @@ export class ProductsService {
         throw new BadRequestException('Los productos compuestos solo admiten adicionales');
       }
     }
+    if (type === ProductType.SIMPLE) {
+      if (dto.optionGroups?.some((g) => g.kind !== OptionGroupKind.ADDON)) {
+        throw new BadRequestException('Los productos por unidad solo admiten adicionales');
+      }
+    }
     if (type === ProductType.BULK && !dto.stockUnit) {
       throw new BadRequestException('Indica la unidad del insumo (g, ml o uds)');
     }
@@ -228,6 +233,8 @@ export class ProductsService {
         salePrice: productType === ProductType.BULK ? 0 : dto.salePrice,
         baseProductId: hasOptions ? null : (dto.baseProductId ?? null),
         scoopCount: hasOptions ? dto.scoopCount : null,
+        variableScoops: hasOptions ? (dto.variableScoops ?? false) : false,
+        scoopPrices: hasOptions && dto.variableScoops ? dto.scoopPrices ?? null : null,
         visibleInPos: dto.visibleInPos ?? productType !== ProductType.BULK,
       });
       const saved = await manager.save(product);
@@ -254,6 +261,7 @@ export class ProductsService {
           dto.scoopCount!,
           storeId,
           dto.stockUnit ?? StockUnit.G,
+          dto.variableScoops ?? false,
         );
       } else if (productType === ProductType.COMPOSITE && dto.optionGroups?.length) {
         await this.saveOptionGroups(
@@ -264,6 +272,18 @@ export class ProductsService {
           1,
           storeId,
           StockUnit.UNIT,
+          false,
+        );
+      } else if (productType === ProductType.SIMPLE && dto.optionGroups?.length) {
+        await this.saveOptionGroups(
+          manager,
+          saved.id,
+          dto.optionGroups,
+          1,
+          1,
+          storeId,
+          StockUnit.UNIT,
+          false,
         );
       }
     });
@@ -300,10 +320,18 @@ export class ProductsService {
       }
     }
 
+    if (existing.productType === ProductType.SIMPLE && dto.optionGroups) {
+      const invalid = dto.optionGroups.some((g) => g.kind !== OptionGroupKind.ADDON);
+      if (invalid) {
+        throw new BadRequestException('Los productos por unidad solo admiten adicionales');
+      }
+    }
+
     await this.dataSource.transaction(async (manager) => {
       const { recipe, optionGroups, ...scalarFields } = dto;
       const hasPortionOptions = optionGroups?.length && existing.productType === ProductType.PORTION;
       const hasCompositeAddons = optionGroups !== undefined && existing.productType === ProductType.COMPOSITE;
+      const hasSimpleAddons = optionGroups !== undefined && existing.productType === ProductType.SIMPLE;
 
       if (hasPortionOptions) {
         const oldGroups = await manager.find(ProductOptionGroup, {
@@ -316,7 +344,7 @@ export class ProductsService {
         }
       }
 
-      if (hasCompositeAddons) {
+      if (hasCompositeAddons || hasSimpleAddons) {
         const oldGroups = await manager.find(ProductOptionGroup, {
           where: { productId: existing.id },
           select: ['id'],
@@ -335,6 +363,10 @@ export class ProductsService {
       if (hasPortionOptions) {
         productPatch.baseProductId = null;
         productPatch.scoopCount = dto.scoopCount ?? existing.scoopCount;
+        productPatch.variableScoops = dto.variableScoops ?? existing.variableScoops;
+        productPatch.scoopPrices = dto.variableScoops
+          ? (dto.scoopPrices ?? existing.scoopPrices)
+          : null;
       }
       if (Object.keys(productPatch).length > 0) {
         await manager.update(Product, { id: existing.id }, productPatch);
@@ -362,10 +394,11 @@ export class ProductsService {
           dto.scoopCount ?? existing.scoopCount ?? 1,
           existing.storeId,
           portionUnit,
+          dto.variableScoops ?? existing.variableScoops ?? false,
         );
       }
 
-      if (hasCompositeAddons && optionGroups) {
+      if ((hasCompositeAddons || hasSimpleAddons) && optionGroups) {
         await this.saveOptionGroups(
           manager,
           existing.id,
@@ -374,6 +407,7 @@ export class ProductsService {
           1,
           existing.storeId,
           StockUnit.UNIT,
+          false,
         );
       }
     });
@@ -389,18 +423,22 @@ export class ProductsService {
     scoopCount: number,
     storeId: number,
     portionUnit: StockUnit = StockUnit.G,
+    variableScoops = false,
   ) {
     let sortOrder = 0;
     for (const groupDto of groups ?? []) {
       const isAddon = groupDto.kind === OptionGroupKind.ADDON;
-      const minSelect = groupDto.kind === OptionGroupKind.FLAVOR
-        ? scoopCount
+      const isFlavor = groupDto.kind === OptionGroupKind.FLAVOR;
+      const minSelect = isFlavor
+        ? (variableScoops ? 1 : scoopCount)
         : isAddon
           ? 0
           : 1;
-      const maxSelect = isAddon
-        ? Math.max(groupDto.options?.length ?? 0, 1)
-        : minSelect;
+      const maxSelect = isFlavor
+        ? scoopCount
+        : isAddon
+          ? Math.max(groupDto.options?.length ?? 0, 1)
+          : minSelect;
       const group = await manager.save(manager.create(ProductOptionGroup, {
         productId,
         name: groupDto.name,

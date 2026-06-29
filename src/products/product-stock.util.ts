@@ -111,6 +111,49 @@ export async function planStockDeductions(
 
   switch (product.productType) {
     case ProductType.SIMPLE: {
+      const groups = product.optionGroups?.length
+        ? product.optionGroups
+        : await loadOptionGroups(manager, product.id);
+
+      const hasAddons = groups.some((g) => g.kind === OptionGroupKind.ADDON);
+      if (hasAddons) {
+        if (num(product.stock) < saleQty) {
+          throw new BadRequestException(`Stock insuficiente para ${product.name}`);
+        }
+        const deductions: StockDeduction[] = [{
+          productId: product.id,
+          productName: product.name,
+          quantity: saleQty,
+        }];
+        if (selectedOptionIds?.length) {
+          const addonDeductions = await planAddonDeductions(
+            manager,
+            product,
+            saleQty,
+            storeId,
+            selectedOptionIds,
+          );
+          for (const addon of addonDeductions) {
+            const existing = deductions.find((d) => d.productId === addon.productId);
+            if (existing) {
+              existing.quantity += addon.quantity;
+            } else {
+              deductions.push(addon);
+            }
+          }
+          for (const d of deductions) {
+            if (d.productId === product.id) continue;
+            const ingredient = await manager.findOne(Product, { where: { id: d.productId, storeId } });
+            if (!ingredient || num(ingredient.stock) < d.quantity) {
+              throw new BadRequestException(
+                `Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ''})`,
+              );
+            }
+          }
+        }
+        return deductions;
+      }
+
       if (num(product.stock) < saleQty) {
         throw new BadRequestException(`Stock insuficiente para ${product.name}`);
       }
@@ -255,6 +298,7 @@ async function sellableForPortionWithOptions(
   if (groups.length === 0 || !product.portionSize) return 0;
 
   const scoopCount = product.scoopCount ?? 1;
+  const minScoops = product.variableScoops ? 1 : scoopCount;
   let flavorUnits = Infinity;
   let containerUnits = Infinity;
 
@@ -267,7 +311,7 @@ async function sellableForPortionWithOptions(
         if (!ingredient || num(option.quantity) <= 0) continue;
         maxFlavor = Math.max(maxFlavor, Math.floor(num(ingredient.stock) / num(option.quantity)));
       }
-      flavorUnits = Math.floor(maxFlavor / scoopCount);
+      flavorUnits = Math.floor(maxFlavor / minScoops);
     }
 
     if (group.kind === OptionGroupKind.CONTAINER) {
@@ -468,12 +512,40 @@ export function calculateSaleUnitCost(
   return Number(total.toFixed(2));
 }
 
-/** Precio de venta según adicionales elegidos (base + extras) */
+function countSelectedByKind(
+  product: Product,
+  selectedOptionIds: number[] | undefined,
+  kind: OptionGroupKind,
+): number {
+  if (!selectedOptionIds?.length || !product.optionGroups?.length) return 0;
+  const ids = new Set<number>();
+  for (const group of product.optionGroups) {
+    if (group.kind !== kind) continue;
+    for (const option of group.options ?? []) {
+      ids.add(option.id);
+    }
+  }
+  return selectedOptionIds.filter((id) => ids.has(id)).length;
+}
+
+/** Precio de venta según adicionales elegidos (base + extras) y bolas variables */
 export function calculateSaleUnitPrice(
   product: Product,
   selectedOptionIds?: number[],
 ): number {
   let price = num(product.salePrice);
+
+  if (
+    product.productType === ProductType.PORTION
+    && product.variableScoops
+    && product.scoopPrices?.length
+    && selectedOptionIds?.length
+  ) {
+    const flavorCount = countSelectedByKind(product, selectedOptionIds, OptionGroupKind.FLAVOR);
+    if (flavorCount > 0) {
+      price = num(product.scoopPrices[flavorCount - 1] ?? product.salePrice);
+    }
+  }
 
   if (!selectedOptionIds?.length || !product.optionGroups?.length) {
     return price;

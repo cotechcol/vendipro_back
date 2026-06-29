@@ -201,6 +201,24 @@ export async function runProductMigration(): Promise<void> {
         `);
         console.log('[product-migration] Columna products.visible_in_pos agregada');
       }
+
+      if (!(await columnExists(connection, 'products', 'variable_scoops'))) {
+        await connection.query(`
+          ALTER TABLE products
+          ADD COLUMN variable_scoops TINYINT(1) NOT NULL DEFAULT 0
+          AFTER scoop_count
+        `);
+        console.log('[product-migration] Columna variable_scoops agregada');
+      }
+
+      if (!(await columnExists(connection, 'products', 'scoop_prices'))) {
+        await connection.query(`
+          ALTER TABLE products
+          ADD COLUMN scoop_prices JSON NULL
+          AFTER variable_scoops
+        `);
+        console.log('[product-migration] Columna scoop_prices agregada');
+      }
     }
 
     if (await tableExists(connection, 'product_options')) {

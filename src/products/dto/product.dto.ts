@@ -105,6 +105,19 @@ export class CreateProductDto {
   scoopCount?: number;
 
   @ValidateIf((o) => o.productType === ProductType.PORTION && o.optionGroups?.length)
+  @IsOptional()
+  @IsBoolean()
+  variableScoops?: boolean;
+
+  @ValidateIf((o) => o.productType === ProductType.PORTION && o.variableScoops)
+  @IsOptional()
+  @IsArray()
+  scoopPrices?: number[];
+
+  @ValidateIf((o) =>
+    (o.productType === ProductType.PORTION && o.optionGroups?.length)
+    || o.productType === ProductType.COMPOSITE
+    || (o.productType === ProductType.SIMPLE && o.optionGroups?.length))
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ProductOptionGroupDto)
@@ -205,6 +218,14 @@ export class UpdateProductDto {
   @IsInt()
   @Min(1)
   scoopCount?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  variableScoops?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  scoopPrices?: number[];
 
   @IsOptional()
   @IsArray()

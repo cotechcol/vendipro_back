@@ -61,9 +61,17 @@ export class Product {
   @Column({ name: 'portion_size', type: 'decimal', precision: 12, scale: 3, nullable: true })
   portionSize: number | null;
 
-  /** Bolas de helado cuando el producto usa opciones de sabor */
+  /** Bolas de helado cuando el producto usa opciones de sabor (máximo si variableScoops) */
   @Column({ name: 'scoop_count', type: 'int', nullable: true })
   scoopCount: number | null;
+
+  /** Si true, el cliente elige 1..scoopCount bolas al vender (un solo producto en POS) */
+  @Column({ name: 'variable_scoops', default: false })
+  variableScoops: boolean;
+
+  /** Precios por cantidad de bolas: [1 bola, 2 bolas, 3 bolas…] */
+  @Column({ name: 'scoop_prices', type: 'json', nullable: true })
+  scoopPrices: number[] | null;
 
   @Column({ name: 'sale_price', type: 'decimal', precision: 12, scale: 2 })
   salePrice: number;
