@@ -61,6 +61,10 @@ export class Product {
   @Column({ name: 'portion_size', type: 'decimal', precision: 12, scale: 3, nullable: true })
   portionSize: number | null;
 
+  /** Cantidad que rinde un lote completo de la receta (productos elaborados) */
+  @Column({ name: 'recipe_batch_size', type: 'decimal', precision: 12, scale: 3, nullable: true })
+  recipeBatchSize: number | null;
+
   /** Bolas de helado cuando el producto usa opciones de sabor (máximo si variableScoops) */
   @Column({ name: 'scoop_count', type: 'int', nullable: true })
   scoopCount: number | null;

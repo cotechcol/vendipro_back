@@ -294,6 +294,33 @@ export async function runProductMigration(): Promise<void> {
       `);
     }
 
+    if (await columnExists(connection, 'products', 'product_type')) {
+      await connection.query(`
+        ALTER TABLE products
+        MODIFY COLUMN product_type ENUM('simple','bulk','portion','composite','prepared') NOT NULL DEFAULT 'simple'
+      `);
+      console.log('[product-migration] product_type incluye prepared');
+    }
+
+    if (!(await columnExists(connection, 'products', 'recipe_batch_size'))) {
+      await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN recipe_batch_size DECIMAL(12,3) NULL
+        AFTER portion_size
+      `);
+      console.log('[product-migration] Columna recipe_batch_size agregada');
+    }
+
+    if (await tableExists(connection, 'inventory_movements')) {
+      if (await columnExists(connection, 'inventory_movements', 'type')) {
+        await connection.query(`
+          ALTER TABLE inventory_movements
+          MODIFY COLUMN type ENUM('sale','purchase','adjustment_in','adjustment_out','production') NOT NULL
+        `);
+        console.log('[product-migration] inventory_movements.type incluye production');
+      }
+    }
+
     console.log('[product-migration] Esquema de productos actualizado');
   } finally {
     await connection.end();

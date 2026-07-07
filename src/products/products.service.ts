@@ -85,7 +85,7 @@ export class ProductsService {
     const [rows, total] = await qb.getManyAndCount();
     const data = await Promise.all(
       rows.map(async (p) => {
-        const sellable = p.productType === ProductType.BULK
+        const sellable = [ProductType.BULK, ProductType.PREPARED].includes(p.productType)
           ? undefined
           : await getSellableUnits(this.repo.manager, p);
         return this.enrichProduct(p, sellable);
@@ -98,7 +98,7 @@ export class ProductsService {
   async findBulkProducts(ctx: StoreContext) {
     const storeId = this.scopeStore(ctx);
     return this.repo.find({
-      where: { storeId, productType: ProductType.BULK, active: true },
+      where: { storeId, productType: In([ProductType.BULK, ProductType.PREPARED]), active: true },
       order: { name: 'ASC' },
     });
   }
@@ -116,7 +116,9 @@ export class ProductsService {
       .where('p.storeId = :storeId', { storeId })
       .andWhere('p.active = true')
       .andWhere('p.visibleInPos = true')
-      .andWhere('p.productType != :bulk', { bulk: ProductType.BULK })
+      .andWhere('p.productType NOT IN (:...excluded)', {
+        excluded: [ProductType.BULK, ProductType.PREPARED],
+      })
       .orderBy('p.name', 'ASC');
 
     if (search) qb.andWhere('(p.name LIKE :s OR p.sku LIKE :s)', { s: `%${search}%` });
@@ -138,7 +140,7 @@ export class ProductsService {
       .leftJoinAndSelect('p.category', 'category')
       .where('p.storeId = :storeId', { storeId })
       .andWhere('p.active = true')
-      .andWhere('p.productType IN (:...types)', { types: [ProductType.SIMPLE, ProductType.BULK] })
+      .andWhere('p.productType IN (:...types)', { types: [ProductType.SIMPLE, ProductType.BULK, ProductType.PREPARED] })
       .andWhere('p.stock <= p.minStock')
       .orderBy('p.stock', 'ASC')
       .getMany();
@@ -154,7 +156,7 @@ export class ProductsService {
     if (product.storeId !== this.scopeStore(ctx)) {
       throw new ForbiddenException('Producto no pertenece a esta tienda');
     }
-    const sellable = product.productType === ProductType.BULK
+    const sellable = [ProductType.BULK, ProductType.PREPARED].includes(product.productType)
       ? undefined
       : await getSellableUnits(this.repo.manager, product);
     return this.enrichProduct(product, sellable);
@@ -192,6 +194,18 @@ export class ProductsService {
         throw new BadRequestException('Los productos compuestos solo admiten adicionales');
       }
     }
+    if (type === ProductType.PREPARED) {
+      if (!('recipe' in dto) || !dto.recipe?.length) {
+        throw new BadRequestException('Agrega al menos un ingrediente a la receta');
+      }
+      if (!('recipeBatchSize' in dto) || !dto.recipeBatchSize || Number(dto.recipeBatchSize) <= 0) {
+        throw new BadRequestException('Indica cuánto rinde un lote completo de la receta');
+      }
+      const unit = dto.stockUnit ?? StockUnit.G;
+      if (![StockUnit.G, StockUnit.ML].includes(unit)) {
+        throw new BadRequestException('Los elaborados usan gramos (g) o mililitros (ml)');
+      }
+    }
     if (type === ProductType.SIMPLE) {
       if (dto.optionGroups?.some((g) => g.kind !== OptionGroupKind.ADDON)) {
         throw new BadRequestException('Los productos por unidad solo admiten adicionales');
@@ -212,8 +226,8 @@ export class ProductsService {
 
     if (dto.baseProductId) {
       const base = await this.repo.findOne({ where: { id: dto.baseProductId, storeId } });
-      if (!base || base.productType !== ProductType.BULK) {
-        throw new BadRequestException('El insumo base debe ser un producto tipo bulk');
+      if (!base || ![ProductType.BULK, ProductType.PREPARED].includes(base.productType)) {
+        throw new BadRequestException('El insumo base debe ser un producto bulk o elaborado');
       }
     }
 
@@ -225,24 +239,31 @@ export class ProductsService {
         storeId,
         productType,
         stockUnit: dto.stockUnit ?? (
-          productType === ProductType.BULK ? StockUnit.G
+          productType === ProductType.BULK || productType === ProductType.PREPARED ? StockUnit.G
             : productType === ProductType.PORTION ? StockUnit.G
               : StockUnit.UNIT
         ),
-        stock: productType === ProductType.PORTION || productType === ProductType.COMPOSITE ? 0 : (dto.stock ?? 0),
-        salePrice: productType === ProductType.BULK ? 0 : dto.salePrice,
+        stock: productType === ProductType.PORTION || productType === ProductType.COMPOSITE
+          ? 0
+          : (dto.stock ?? 0),
+        salePrice: productType === ProductType.BULK || productType === ProductType.PREPARED
+          ? 0
+          : dto.salePrice,
+        recipeBatchSize: productType === ProductType.PREPARED ? dto.recipeBatchSize ?? null : null,
         baseProductId: hasOptions ? null : (dto.baseProductId ?? null),
         scoopCount: hasOptions ? dto.scoopCount : null,
         variableScoops: hasOptions ? (dto.variableScoops ?? false) : false,
         scoopPrices: hasOptions && dto.variableScoops ? dto.scoopPrices ?? null : null,
-        visibleInPos: dto.visibleInPos ?? productType !== ProductType.BULK,
+        visibleInPos: dto.visibleInPos ?? (
+          productType !== ProductType.BULK && productType !== ProductType.PREPARED
+        ),
       });
       const saved = await manager.save(product);
       savedId = saved.id;
 
-      if (productType === ProductType.COMPOSITE && dto.recipe) {
+      if ((productType === ProductType.COMPOSITE || productType === ProductType.PREPARED) && dto.recipe) {
         for (const line of dto.recipe) {
-          await this.validateIngredient(manager, line.ingredientProductId, storeId);
+          await this.validateIngredient(manager, line.ingredientProductId, storeId, saved.id);
           await manager.save(manager.create(ProductRecipe, {
             productId: saved.id,
             ingredientProductId: line.ingredientProductId,
@@ -302,8 +323,8 @@ export class ProductsService {
       if (exists) throw new ConflictException('El SKU ya existe en esta tienda');
     }
 
-    if (dto.recipe && existing.productType !== ProductType.COMPOSITE) {
-      throw new BadRequestException('Solo productos compuestos tienen receta');
+    if (dto.recipe && ![ProductType.COMPOSITE, ProductType.PREPARED].includes(existing.productType)) {
+      throw new BadRequestException('Solo productos compuestos o elaborados tienen receta');
     }
 
     if (existing.productType === ProductType.PORTION && dto.optionGroups) {
@@ -324,6 +345,20 @@ export class ProductsService {
       const invalid = dto.optionGroups.some((g) => g.kind !== OptionGroupKind.ADDON);
       if (invalid) {
         throw new BadRequestException('Los productos por unidad solo admiten adicionales');
+      }
+    }
+
+    if (existing.productType === ProductType.PREPARED && (dto.recipe || dto.recipeBatchSize !== undefined)) {
+      this.validateProductDto(
+        { ...dto, productType: ProductType.PREPARED } as CreateProductDto,
+        ProductType.PREPARED,
+      );
+    }
+
+    if (dto.baseProductId) {
+      const base = await this.repo.findOne({ where: { id: dto.baseProductId, storeId: existing.storeId } });
+      if (!base || ![ProductType.BULK, ProductType.PREPARED].includes(base.productType)) {
+        throw new BadRequestException('El insumo base debe ser un producto bulk o elaborado');
       }
     }
 
@@ -355,7 +390,7 @@ export class ProductsService {
         }
       }
 
-      if (recipe && existing.productType === ProductType.COMPOSITE) {
+      if (recipe && [ProductType.COMPOSITE, ProductType.PREPARED].includes(existing.productType)) {
         await manager.delete(ProductRecipe, { productId: existing.id });
       }
 
@@ -377,9 +412,9 @@ export class ProductsService {
         await manager.update(Product, { id: existing.id }, productPatch);
       }
 
-      if (recipe && existing.productType === ProductType.COMPOSITE) {
+      if (recipe && [ProductType.COMPOSITE, ProductType.PREPARED].includes(existing.productType)) {
         for (const line of recipe) {
-          await this.validateIngredient(manager, line.ingredientProductId, existing.storeId);
+          await this.validateIngredient(manager, line.ingredientProductId, existing.storeId, existing.id);
           await manager.save(manager.create(ProductRecipe, {
             productId: existing.id,
             ingredientProductId: line.ingredientProductId,
@@ -500,12 +535,20 @@ export class ProductsService {
     }
   }
 
-  private async validateIngredient(manager: EntityManager, ingredientId: number, storeId: number) {
+  private async validateIngredient(
+    manager: EntityManager,
+    ingredientId: number,
+    storeId: number,
+    excludeProductId?: number,
+  ) {
     const ingredient = await manager.findOne(Product, { where: { id: ingredientId, storeId } });
     if (!ingredient) {
       throw new BadRequestException(`Ingrediente ${ingredientId} no encontrado`);
     }
-    if (![ProductType.BULK, ProductType.SIMPLE].includes(ingredient.productType)) {
+    if (excludeProductId && ingredientId === excludeProductId) {
+      throw new BadRequestException('Un producto no puede ser ingrediente de sí mismo');
+    }
+    if (![ProductType.BULK, ProductType.SIMPLE, ProductType.PREPARED].includes(ingredient.productType)) {
       throw new BadRequestException(`${ingredient.name} no puede ser ingrediente`);
     }
   }

@@ -53,6 +53,7 @@ var require_enums = __commonJS({
       InventoryMovementType2["PURCHASE"] = "purchase";
       InventoryMovementType2["ADJUSTMENT_IN"] = "adjustment_in";
       InventoryMovementType2["ADJUSTMENT_OUT"] = "adjustment_out";
+      InventoryMovementType2["PRODUCTION"] = "production";
     })(InventoryMovementType || (exports2.InventoryMovementType = InventoryMovementType = {}));
     var ProductType;
     (function(ProductType2) {
@@ -60,6 +61,7 @@ var require_enums = __commonJS({
       ProductType2["BULK"] = "bulk";
       ProductType2["PORTION"] = "portion";
       ProductType2["COMPOSITE"] = "composite";
+      ProductType2["PREPARED"] = "prepared";
     })(ProductType || (exports2.ProductType = ProductType = {}));
     var StockUnit;
     (function(StockUnit2) {
@@ -994,6 +996,7 @@ var require_product_entity = __commonJS({
       baseProductId;
       baseProduct;
       portionSize;
+      recipeBatchSize;
       scoopCount;
       variableScoops;
       scoopPrices;
@@ -1064,6 +1067,10 @@ var require_product_entity = __commonJS({
       (0, typeorm_1.Column)({ name: "portion_size", type: "decimal", precision: 12, scale: 3, nullable: true }),
       __metadata("design:type", Object)
     ], Product.prototype, "portionSize", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "recipe_batch_size", type: "decimal", precision: 12, scale: 3, nullable: true }),
+      __metadata("design:type", Object)
+    ], Product.prototype, "recipeBatchSize", void 0);
     __decorate([
       (0, typeorm_1.Column)({ name: "scoop_count", type: "int", nullable: true }),
       __metadata("design:type", Object)
@@ -3190,6 +3197,8 @@ var require_product_stock_util = __commonJS({
     exports2.applyStockDeductions = applyStockDeductions;
     exports2.getSellableUnits = getSellableUnits;
     exports2.isLowStock = isLowStock;
+    exports2.computeProductionDeductions = computeProductionDeductions;
+    exports2.planProductionDeductions = planProductionDeductions;
     exports2.calculateSaleUnitCost = calculateSaleUnitCost;
     exports2.calculateSaleUnitPrice = calculateSaleUnitPrice;
     var common_1 = require("@nestjs/common");
@@ -3329,6 +3338,8 @@ var require_product_stock_util = __commonJS({
         }
         case enums_1.ProductType.BULK:
           throw new common_1.BadRequestException(`${product.name} es un insumo base y no se vende directamente`);
+        case enums_1.ProductType.PREPARED:
+          throw new common_1.BadRequestException(`${product.name} es un elaborado interno y no se vende directamente`);
         case enums_1.ProductType.PORTION: {
           const groups = product.optionGroups?.length ? product.optionGroups : await loadOptionGroups(manager, product.id);
           if (groups.length > 0) {
@@ -3495,12 +3506,55 @@ var require_product_stock_util = __commonJS({
           }
           return minUnits === Infinity ? 0 : minUnits;
         }
+        case enums_1.ProductType.PREPARED:
+          return 0;
         default:
           return 0;
       }
     }
     function isLowStock(product) {
       return num(product.stock) <= num(product.minStock);
+    }
+    async function computeProductionDeductions(manager, product, quantityProduced, storeId) {
+      const batchSize = num(product.recipeBatchSize);
+      if (batchSize <= 0) {
+        throw new common_1.BadRequestException(`${product.name} no tiene tama\xF1o de lote configurado`);
+      }
+      const qty = num(quantityProduced);
+      if (qty <= 0) {
+        throw new common_1.BadRequestException("Cantidad de producci\xF3n inv\xE1lida");
+      }
+      const batches = qty / batchSize;
+      const recipes = product.recipe?.length ? product.recipe : await manager.find(product_recipe_entity_1.ProductRecipe, {
+        where: { productId: product.id },
+        relations: ["ingredient"]
+      });
+      if (recipes.length === 0) {
+        throw new common_1.BadRequestException(`${product.name} no tiene receta configurada`);
+      }
+      const deductions = [];
+      for (const line of recipes) {
+        const ingredient = line.ingredient ?? await manager.findOne(product_entity_1.Product, { where: { id: line.ingredientProductId, storeId } });
+        if (!ingredient) {
+          throw new common_1.BadRequestException(`Ingrediente no encontrado en receta de ${product.name}`);
+        }
+        deductions.push({
+          productId: ingredient.id,
+          productName: ingredient.name,
+          quantity: Number((num(line.quantity) * batches).toFixed(3))
+        });
+      }
+      return { deductions, batches: Number(batches.toFixed(6)) };
+    }
+    async function planProductionDeductions(manager, product, quantityProduced, storeId) {
+      const plan = await computeProductionDeductions(manager, product, quantityProduced, storeId);
+      for (const d of plan.deductions) {
+        const ingredient = await manager.findOne(product_entity_1.Product, { where: { id: d.productId, storeId } });
+        if (!ingredient || num(ingredient.stock) < d.quantity) {
+          throw new common_1.BadRequestException(`Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ""})`);
+        }
+      }
+      return plan;
     }
     function resolveOptionUnitCost(option) {
       const stored = num(option.unitCost);
@@ -3863,7 +3917,7 @@ var require_products_service = __commonJS({
           qb.andWhere("p.productType = :productType", { productType });
         const [rows, total] = await qb.getManyAndCount();
         const data = await Promise.all(rows.map(async (p) => {
-          const sellable = p.productType === enums_1.ProductType.BULK ? void 0 : await (0, product_stock_util_1.getSellableUnits)(this.repo.manager, p);
+          const sellable = [enums_1.ProductType.BULK, enums_1.ProductType.PREPARED].includes(p.productType) ? void 0 : await (0, product_stock_util_1.getSellableUnits)(this.repo.manager, p);
           return this.enrichProduct(p, sellable);
         }));
         return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
@@ -3871,13 +3925,15 @@ var require_products_service = __commonJS({
       async findBulkProducts(ctx) {
         const storeId = this.scopeStore(ctx);
         return this.repo.find({
-          where: { storeId, productType: enums_1.ProductType.BULK, active: true },
+          where: { storeId, productType: (0, typeorm_2.In)([enums_1.ProductType.BULK, enums_1.ProductType.PREPARED]), active: true },
           order: { name: "ASC" }
         });
       }
       async findForPos(search, categoryId, ctx) {
         const storeId = this.scopeStore(ctx);
-        const qb = this.repo.createQueryBuilder("p").leftJoinAndSelect("p.category", "category").leftJoinAndSelect("p.baseProduct", "baseProduct").leftJoinAndSelect("p.recipe", "recipe").leftJoinAndSelect("recipe.ingredient", "ingredient").leftJoinAndSelect("p.optionGroups", "optionGroups").leftJoinAndSelect("optionGroups.options", "options").leftJoinAndSelect("options.ingredient", "optionIngredient").where("p.storeId = :storeId", { storeId }).andWhere("p.active = true").andWhere("p.visibleInPos = true").andWhere("p.productType != :bulk", { bulk: enums_1.ProductType.BULK }).orderBy("p.name", "ASC");
+        const qb = this.repo.createQueryBuilder("p").leftJoinAndSelect("p.category", "category").leftJoinAndSelect("p.baseProduct", "baseProduct").leftJoinAndSelect("p.recipe", "recipe").leftJoinAndSelect("recipe.ingredient", "ingredient").leftJoinAndSelect("p.optionGroups", "optionGroups").leftJoinAndSelect("optionGroups.options", "options").leftJoinAndSelect("options.ingredient", "optionIngredient").where("p.storeId = :storeId", { storeId }).andWhere("p.active = true").andWhere("p.visibleInPos = true").andWhere("p.productType NOT IN (:...excluded)", {
+          excluded: [enums_1.ProductType.BULK, enums_1.ProductType.PREPARED]
+        }).orderBy("p.name", "ASC");
         if (search)
           qb.andWhere("(p.name LIKE :s OR p.sku LIKE :s)", { s: `%${search}%` });
         if (categoryId)
@@ -3893,7 +3949,7 @@ var require_products_service = __commonJS({
       }
       async findLowStock(ctx) {
         const storeId = this.scopeStore(ctx);
-        const products = await this.repo.createQueryBuilder("p").leftJoinAndSelect("p.category", "category").where("p.storeId = :storeId", { storeId }).andWhere("p.active = true").andWhere("p.productType IN (:...types)", { types: [enums_1.ProductType.SIMPLE, enums_1.ProductType.BULK] }).andWhere("p.stock <= p.minStock").orderBy("p.stock", "ASC").getMany();
+        const products = await this.repo.createQueryBuilder("p").leftJoinAndSelect("p.category", "category").where("p.storeId = :storeId", { storeId }).andWhere("p.active = true").andWhere("p.productType IN (:...types)", { types: [enums_1.ProductType.SIMPLE, enums_1.ProductType.BULK, enums_1.ProductType.PREPARED] }).andWhere("p.stock <= p.minStock").orderBy("p.stock", "ASC").getMany();
         return products;
       }
       async findOne(id, ctx) {
@@ -3906,7 +3962,7 @@ var require_products_service = __commonJS({
         if (product.storeId !== this.scopeStore(ctx)) {
           throw new common_1.ForbiddenException("Producto no pertenece a esta tienda");
         }
-        const sellable = product.productType === enums_1.ProductType.BULK ? void 0 : await (0, product_stock_util_1.getSellableUnits)(this.repo.manager, product);
+        const sellable = [enums_1.ProductType.BULK, enums_1.ProductType.PREPARED].includes(product.productType) ? void 0 : await (0, product_stock_util_1.getSellableUnits)(this.repo.manager, product);
         return this.enrichProduct(product, sellable);
       }
       validateProductDto(dto, type) {
@@ -3940,6 +3996,18 @@ var require_products_service = __commonJS({
             throw new common_1.BadRequestException("Los productos compuestos solo admiten adicionales");
           }
         }
+        if (type === enums_1.ProductType.PREPARED) {
+          if (!("recipe" in dto) || !dto.recipe?.length) {
+            throw new common_1.BadRequestException("Agrega al menos un ingrediente a la receta");
+          }
+          if (!("recipeBatchSize" in dto) || !dto.recipeBatchSize || Number(dto.recipeBatchSize) <= 0) {
+            throw new common_1.BadRequestException("Indica cu\xE1nto rinde un lote completo de la receta");
+          }
+          const unit = dto.stockUnit ?? enums_1.StockUnit.G;
+          if (![enums_1.StockUnit.G, enums_1.StockUnit.ML].includes(unit)) {
+            throw new common_1.BadRequestException("Los elaborados usan gramos (g) o mililitros (ml)");
+          }
+        }
         if (type === enums_1.ProductType.SIMPLE) {
           if (dto.optionGroups?.some((g) => g.kind !== enums_1.OptionGroupKind.ADDON)) {
             throw new common_1.BadRequestException("Los productos por unidad solo admiten adicionales");
@@ -3958,8 +4026,8 @@ var require_products_service = __commonJS({
         this.validateProductDto(dto, productType);
         if (dto.baseProductId) {
           const base = await this.repo.findOne({ where: { id: dto.baseProductId, storeId } });
-          if (!base || base.productType !== enums_1.ProductType.BULK) {
-            throw new common_1.BadRequestException("El insumo base debe ser un producto tipo bulk");
+          if (!base || ![enums_1.ProductType.BULK, enums_1.ProductType.PREPARED].includes(base.productType)) {
+            throw new common_1.BadRequestException("El insumo base debe ser un producto bulk o elaborado");
           }
         }
         let savedId = 0;
@@ -3969,20 +4037,21 @@ var require_products_service = __commonJS({
             ...dto,
             storeId,
             productType,
-            stockUnit: dto.stockUnit ?? (productType === enums_1.ProductType.BULK ? enums_1.StockUnit.G : productType === enums_1.ProductType.PORTION ? enums_1.StockUnit.G : enums_1.StockUnit.UNIT),
+            stockUnit: dto.stockUnit ?? (productType === enums_1.ProductType.BULK || productType === enums_1.ProductType.PREPARED ? enums_1.StockUnit.G : productType === enums_1.ProductType.PORTION ? enums_1.StockUnit.G : enums_1.StockUnit.UNIT),
             stock: productType === enums_1.ProductType.PORTION || productType === enums_1.ProductType.COMPOSITE ? 0 : dto.stock ?? 0,
-            salePrice: productType === enums_1.ProductType.BULK ? 0 : dto.salePrice,
+            salePrice: productType === enums_1.ProductType.BULK || productType === enums_1.ProductType.PREPARED ? 0 : dto.salePrice,
+            recipeBatchSize: productType === enums_1.ProductType.PREPARED ? dto.recipeBatchSize ?? null : null,
             baseProductId: hasOptions ? null : dto.baseProductId ?? null,
             scoopCount: hasOptions ? dto.scoopCount : null,
             variableScoops: hasOptions ? dto.variableScoops ?? false : false,
             scoopPrices: hasOptions && dto.variableScoops ? dto.scoopPrices ?? null : null,
-            visibleInPos: dto.visibleInPos ?? productType !== enums_1.ProductType.BULK
+            visibleInPos: dto.visibleInPos ?? (productType !== enums_1.ProductType.BULK && productType !== enums_1.ProductType.PREPARED)
           });
           const saved = await manager.save(product);
           savedId = saved.id;
-          if (productType === enums_1.ProductType.COMPOSITE && dto.recipe) {
+          if ((productType === enums_1.ProductType.COMPOSITE || productType === enums_1.ProductType.PREPARED) && dto.recipe) {
             for (const line of dto.recipe) {
-              await this.validateIngredient(manager, line.ingredientProductId, storeId);
+              await this.validateIngredient(manager, line.ingredientProductId, storeId, saved.id);
               await manager.save(manager.create(product_recipe_entity_1.ProductRecipe, {
                 productId: saved.id,
                 ingredientProductId: line.ingredientProductId,
@@ -4013,8 +4082,8 @@ var require_products_service = __commonJS({
           if (exists)
             throw new common_1.ConflictException("El SKU ya existe en esta tienda");
         }
-        if (dto.recipe && existing.productType !== enums_1.ProductType.COMPOSITE) {
-          throw new common_1.BadRequestException("Solo productos compuestos tienen receta");
+        if (dto.recipe && ![enums_1.ProductType.COMPOSITE, enums_1.ProductType.PREPARED].includes(existing.productType)) {
+          throw new common_1.BadRequestException("Solo productos compuestos o elaborados tienen receta");
         }
         if (existing.productType === enums_1.ProductType.PORTION && dto.optionGroups) {
           this.validateProductDto({ ...dto, productType: enums_1.ProductType.PORTION }, enums_1.ProductType.PORTION);
@@ -4029,6 +4098,15 @@ var require_products_service = __commonJS({
           const invalid = dto.optionGroups.some((g) => g.kind !== enums_1.OptionGroupKind.ADDON);
           if (invalid) {
             throw new common_1.BadRequestException("Los productos por unidad solo admiten adicionales");
+          }
+        }
+        if (existing.productType === enums_1.ProductType.PREPARED && (dto.recipe || dto.recipeBatchSize !== void 0)) {
+          this.validateProductDto({ ...dto, productType: enums_1.ProductType.PREPARED }, enums_1.ProductType.PREPARED);
+        }
+        if (dto.baseProductId) {
+          const base = await this.repo.findOne({ where: { id: dto.baseProductId, storeId: existing.storeId } });
+          if (!base || ![enums_1.ProductType.BULK, enums_1.ProductType.PREPARED].includes(base.productType)) {
+            throw new common_1.BadRequestException("El insumo base debe ser un producto bulk o elaborado");
           }
         }
         await this.dataSource.transaction(async (manager) => {
@@ -4056,7 +4134,7 @@ var require_products_service = __commonJS({
               await manager.delete(product_option_group_entity_1.ProductOptionGroup, { productId: existing.id });
             }
           }
-          if (recipe && existing.productType === enums_1.ProductType.COMPOSITE) {
+          if (recipe && [enums_1.ProductType.COMPOSITE, enums_1.ProductType.PREPARED].includes(existing.productType)) {
             await manager.delete(product_recipe_entity_1.ProductRecipe, { productId: existing.id });
           }
           const productPatch = { ...scalarFields };
@@ -4074,9 +4152,9 @@ var require_products_service = __commonJS({
           if (Object.keys(productPatch).length > 0) {
             await manager.update(product_entity_1.Product, { id: existing.id }, productPatch);
           }
-          if (recipe && existing.productType === enums_1.ProductType.COMPOSITE) {
+          if (recipe && [enums_1.ProductType.COMPOSITE, enums_1.ProductType.PREPARED].includes(existing.productType)) {
             for (const line of recipe) {
-              await this.validateIngredient(manager, line.ingredientProductId, existing.storeId);
+              await this.validateIngredient(manager, line.ingredientProductId, existing.storeId, existing.id);
               await manager.save(manager.create(product_recipe_entity_1.ProductRecipe, {
                 productId: existing.id,
                 ingredientProductId: line.ingredientProductId,
@@ -4147,12 +4225,15 @@ var require_products_service = __commonJS({
           }
         }
       }
-      async validateIngredient(manager, ingredientId, storeId) {
+      async validateIngredient(manager, ingredientId, storeId, excludeProductId) {
         const ingredient = await manager.findOne(product_entity_1.Product, { where: { id: ingredientId, storeId } });
         if (!ingredient) {
           throw new common_1.BadRequestException(`Ingrediente ${ingredientId} no encontrado`);
         }
-        if (![enums_1.ProductType.BULK, enums_1.ProductType.SIMPLE].includes(ingredient.productType)) {
+        if (excludeProductId && ingredientId === excludeProductId) {
+          throw new common_1.BadRequestException("Un producto no puede ser ingrediente de s\xED mismo");
+        }
+        if (![enums_1.ProductType.BULK, enums_1.ProductType.SIMPLE, enums_1.ProductType.PREPARED].includes(ingredient.productType)) {
           throw new common_1.BadRequestException(`${ingredient.name} no puede ser ingrediente`);
         }
       }
@@ -21109,6 +21190,7 @@ var require_product_dto = __commonJS({
       minStock;
       categoryId;
       recipe;
+      recipeBatchSize;
       visibleInPos;
     };
     exports2.CreateProductDto = CreateProductDto;
@@ -21177,7 +21259,7 @@ var require_product_dto = __commonJS({
       __metadata("design:type", Array)
     ], CreateProductDto.prototype, "optionGroups", void 0);
     __decorate([
-      (0, class_validator_1.ValidateIf)((o) => o.productType !== enums_1.ProductType.BULK),
+      (0, class_validator_1.ValidateIf)((o) => o.productType !== enums_1.ProductType.BULK && o.productType !== enums_1.ProductType.PREPARED),
       (0, class_transformer_1.Type)(() => Number),
       (0, class_validator_1.IsNumber)(),
       (0, class_validator_1.Min)(0),
@@ -21210,12 +21292,19 @@ var require_product_dto = __commonJS({
       __metadata("design:type", Number)
     ], CreateProductDto.prototype, "categoryId", void 0);
     __decorate([
-      (0, class_validator_1.ValidateIf)((o) => o.productType === enums_1.ProductType.COMPOSITE),
+      (0, class_validator_1.ValidateIf)((o) => o.productType === enums_1.ProductType.COMPOSITE || o.productType === enums_1.ProductType.PREPARED),
       (0, class_validator_1.IsArray)(),
       (0, class_validator_1.ValidateNested)({ each: true }),
       (0, class_transformer_1.Type)(() => RecipeItemDto),
       __metadata("design:type", Array)
     ], CreateProductDto.prototype, "recipe", void 0);
+    __decorate([
+      (0, class_validator_1.ValidateIf)((o) => o.productType === enums_1.ProductType.PREPARED),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsNumber)(),
+      (0, class_validator_1.Min)(1e-3),
+      __metadata("design:type", Number)
+    ], CreateProductDto.prototype, "recipeBatchSize", void 0);
     __decorate([
       (0, class_validator_1.IsOptional)(),
       (0, class_validator_1.IsBoolean)(),
@@ -21239,6 +21328,7 @@ var require_product_dto = __commonJS({
       active;
       visibleInPos;
       recipe;
+      recipeBatchSize;
     };
     exports2.UpdateProductDto = UpdateProductDto;
     __decorate([
@@ -21342,6 +21432,13 @@ var require_product_dto = __commonJS({
       (0, class_transformer_1.Type)(() => RecipeItemDto),
       __metadata("design:type", Array)
     ], UpdateProductDto.prototype, "recipe", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsNumber)(),
+      (0, class_validator_1.Min)(1e-3),
+      __metadata("design:type", Number)
+    ], UpdateProductDto.prototype, "recipeBatchSize", void 0);
   }
 });
 
@@ -22437,6 +22534,7 @@ var require_inventory_service = __commonJS({
     var product_entity_1 = require_product_entity();
     var enums_1 = require_enums();
     var store_context_util_1 = require_store_context_util();
+    var product_stock_util_1 = require_product_stock_util();
     var InventoryService = class InventoryService {
       movementRepo;
       productRepo;
@@ -22458,17 +22556,60 @@ var require_inventory_service = __commonJS({
         const [data, total] = await qb.getManyAndCount();
         return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
       }
+      async productionPreview(productId, quantity, ctx) {
+        const storeId = this.scopeStore(ctx);
+        const product = await this.productRepo.findOne({
+          where: { id: productId, storeId },
+          relations: ["recipe", "recipe.ingredient"]
+        });
+        if (!product)
+          throw new common_1.NotFoundException("Producto no encontrado");
+        if (product.productType !== enums_1.ProductType.PREPARED) {
+          throw new common_1.BadRequestException("Solo productos elaborados tienen vista previa de producci\xF3n");
+        }
+        const plan = await (0, product_stock_util_1.computeProductionDeductions)(this.dataSource.manager, product, quantity, storeId);
+        const ingredients = await Promise.all(plan.deductions.map(async (d) => {
+          const ingredient = await this.productRepo.findOne({ where: { id: d.productId, storeId } });
+          const available = Number(ingredient?.stock ?? 0);
+          return {
+            productId: d.productId,
+            name: d.productName,
+            quantity: d.quantity,
+            stockUnit: ingredient?.stockUnit ?? "g",
+            available,
+            sufficient: available >= d.quantity
+          };
+        }));
+        return {
+          productId: product.id,
+          productName: product.name,
+          quantityProduced: quantity,
+          recipeBatchSize: Number(product.recipeBatchSize),
+          stockUnit: product.stockUnit,
+          batches: plan.batches,
+          ingredients,
+          canProduce: ingredients.every((i) => i.sufficient)
+        };
+      }
       async adjust(dto, userId, ctx) {
         const storeId = this.scopeStore(ctx);
         if (![enums_1.InventoryMovementType.ADJUSTMENT_IN, enums_1.InventoryMovementType.ADJUSTMENT_OUT].includes(dto.type)) {
           throw new common_1.BadRequestException("Tipo de ajuste inv\xE1lido");
         }
         return this.dataSource.transaction(async (manager) => {
-          const product = await manager.findOne(product_entity_1.Product, { where: { id: dto.productId, storeId } });
+          const product = await manager.findOne(product_entity_1.Product, {
+            where: { id: dto.productId, storeId },
+            relations: ["recipe", "recipe.ingredient"]
+          });
           if (!product)
             throw new common_1.NotFoundException("Producto no encontrado");
-          const stockBefore = Number(product.stock);
           const qty = Number(dto.quantity);
+          if (qty <= 0)
+            throw new common_1.BadRequestException("Cantidad inv\xE1lida");
+          if (product.productType === enums_1.ProductType.PREPARED && dto.type === enums_1.InventoryMovementType.ADJUSTMENT_IN) {
+            return this.executeProduction(manager, product, qty, dto.notes, userId, storeId);
+          }
+          const stockBefore = Number(product.stock);
           let stockAfter;
           if (dto.type === enums_1.InventoryMovementType.ADJUSTMENT_IN) {
             stockAfter = Number((stockBefore + qty).toFixed(3));
@@ -22494,6 +22635,48 @@ var require_inventory_service = __commonJS({
           await manager.save(movement);
           return movement;
         });
+      }
+      async executeProduction(manager, product, quantityProduced, notes, userId, storeId) {
+        const plan = await (0, product_stock_util_1.planProductionDeductions)(manager, product, quantityProduced, storeId);
+        const reference = `PROD-${Date.now()}`;
+        const productionNote = notes?.trim() ? notes.trim() : `Producci\xF3n de ${quantityProduced} ${product.stockUnit}`;
+        for (const deduction of plan.deductions) {
+          const ingredient = await manager.findOne(product_entity_1.Product, { where: { id: deduction.productId, storeId } });
+          if (!ingredient) {
+            throw new common_1.BadRequestException(`Ingrediente ${deduction.productName} no encontrado`);
+          }
+          const stockBefore2 = Number(ingredient.stock);
+          const stockAfter2 = Number((stockBefore2 - deduction.quantity).toFixed(3));
+          ingredient.stock = stockAfter2;
+          await manager.save(ingredient);
+          await manager.save(manager.create(inventory_movement_entity_1.InventoryMovement, {
+            storeId,
+            productId: ingredient.id,
+            type: enums_1.InventoryMovementType.ADJUSTMENT_OUT,
+            quantity: deduction.quantity,
+            stockBefore: stockBefore2,
+            stockAfter: stockAfter2,
+            notes: `Consumo producci\xF3n: ${product.name}`,
+            userId,
+            reference
+          }));
+        }
+        const stockBefore = Number(product.stock);
+        const stockAfter = Number((stockBefore + quantityProduced).toFixed(3));
+        product.stock = stockAfter;
+        await manager.save(product);
+        const movement = await manager.save(manager.create(inventory_movement_entity_1.InventoryMovement, {
+          storeId,
+          productId: product.id,
+          type: enums_1.InventoryMovementType.PRODUCTION,
+          quantity: quantityProduced,
+          stockBefore,
+          stockAfter,
+          notes: productionNote,
+          userId,
+          reference
+        }));
+        return movement;
       }
     };
     exports2.InventoryService = InventoryService;
@@ -22595,6 +22778,9 @@ var require_inventory_controller = __commonJS({
       getMovements(query, ctx) {
         return this.service.getMovements(query, ctx);
       }
+      productionPreview(productId, quantity, ctx) {
+        return this.service.productionPreview(Number(productId), Number(quantity), ctx);
+      }
       adjust(dto, userId, ctx) {
         return this.service.adjust(dto, userId, ctx);
       }
@@ -22609,6 +22795,16 @@ var require_inventory_controller = __commonJS({
       __metadata("design:paramtypes", [Object, Object]),
       __metadata("design:returntype", void 0)
     ], InventoryController.prototype, "getMovements", null);
+    __decorate([
+      (0, common_1.Get)("production-preview"),
+      (0, roles_decorator_1.Roles)(enums_1.UserRole.SUPER_ADMIN, enums_1.UserRole.ADMIN),
+      __param(0, (0, common_1.Query)("productId")),
+      __param(1, (0, common_1.Query)("quantity")),
+      __param(2, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [String, String, Object]),
+      __metadata("design:returntype", void 0)
+    ], InventoryController.prototype, "productionPreview", null);
     __decorate([
       (0, common_1.Post)("adjust"),
       (0, roles_decorator_1.Roles)(enums_1.UserRole.SUPER_ADMIN, enums_1.UserRole.ADMIN),

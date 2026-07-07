@@ -21,6 +21,16 @@ export class InventoryController {
     return this.service.getMovements(query, ctx);
   }
 
+  @Get('production-preview')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  productionPreview(
+    @Query('productId') productId: string,
+    @Query('quantity') quantity: string,
+    @StoreCtx() ctx: StoreContext,
+  ) {
+    return this.service.productionPreview(Number(productId), Number(quantity), ctx);
+  }
+
   @Post('adjust')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   adjust(

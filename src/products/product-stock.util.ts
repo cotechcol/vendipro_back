@@ -194,6 +194,9 @@ export async function planStockDeductions(
     case ProductType.BULK:
       throw new BadRequestException(`${product.name} es un insumo base y no se vende directamente`);
 
+    case ProductType.PREPARED:
+      throw new BadRequestException(`${product.name} es un elaborado interno y no se vende directamente`);
+
     case ProductType.PORTION: {
       const groups = product.optionGroups?.length
         ? product.optionGroups
@@ -416,6 +419,9 @@ export async function getSellableUnits(
       return minUnits === Infinity ? 0 : minUnits;
     }
 
+    case ProductType.PREPARED:
+      return 0;
+
     default:
       return 0;
   }
@@ -423,6 +429,72 @@ export async function getSellableUnits(
 
 export function isLowStock(product: Product): boolean {
   return num(product.stock) <= num(product.minStock);
+}
+
+export interface ProductionPlan {
+  deductions: StockDeduction[];
+  batches: number;
+}
+
+export async function computeProductionDeductions(
+  manager: EntityManager,
+  product: Product,
+  quantityProduced: number,
+  storeId: number,
+): Promise<ProductionPlan> {
+  const batchSize = num(product.recipeBatchSize);
+  if (batchSize <= 0) {
+    throw new BadRequestException(`${product.name} no tiene tamaño de lote configurado`);
+  }
+  const qty = num(quantityProduced);
+  if (qty <= 0) {
+    throw new BadRequestException('Cantidad de producción inválida');
+  }
+  const batches = qty / batchSize;
+
+  const recipes = product.recipe?.length
+    ? product.recipe
+    : await manager.find(ProductRecipe, {
+        where: { productId: product.id },
+        relations: ['ingredient'],
+      });
+  if (recipes.length === 0) {
+    throw new BadRequestException(`${product.name} no tiene receta configurada`);
+  }
+
+  const deductions: StockDeduction[] = [];
+  for (const line of recipes) {
+    const ingredient = line.ingredient
+      ?? await manager.findOne(Product, { where: { id: line.ingredientProductId, storeId } });
+    if (!ingredient) {
+      throw new BadRequestException(`Ingrediente no encontrado en receta de ${product.name}`);
+    }
+    deductions.push({
+      productId: ingredient.id,
+      productName: ingredient.name,
+      quantity: Number((num(line.quantity) * batches).toFixed(3)),
+    });
+  }
+
+  return { deductions, batches: Number(batches.toFixed(6)) };
+}
+
+export async function planProductionDeductions(
+  manager: EntityManager,
+  product: Product,
+  quantityProduced: number,
+  storeId: number,
+): Promise<ProductionPlan> {
+  const plan = await computeProductionDeductions(manager, product, quantityProduced, storeId);
+  for (const d of plan.deductions) {
+    const ingredient = await manager.findOne(Product, { where: { id: d.productId, storeId } });
+    if (!ingredient || num(ingredient.stock) < d.quantity) {
+      throw new BadRequestException(
+        `Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ''})`,
+      );
+    }
+  }
+  return plan;
 }
 
 function resolveOptionUnitCost(option: ProductOptionGroup['options'][0]): number {

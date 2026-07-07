@@ -20,6 +20,7 @@ export enum InventoryMovementType {
   PURCHASE = 'purchase',
   ADJUSTMENT_IN = 'adjustment_in',
   ADJUSTMENT_OUT = 'adjustment_out',
+  PRODUCTION = 'production',
 }
 
 export enum ProductType {
@@ -27,6 +28,7 @@ export enum ProductType {
   BULK = 'bulk',
   PORTION = 'portion',
   COMPOSITE = 'composite',
+  PREPARED = 'prepared',
 }
 
 export enum StockUnit {

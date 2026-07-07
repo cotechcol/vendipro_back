@@ -128,7 +128,7 @@ export class CreateProductDto {
   @Type(() => ProductOptionGroupDto)
   optionGroups?: ProductOptionGroupDto[];
 
-  @ValidateIf((o) => o.productType !== ProductType.BULK)
+  @ValidateIf((o) => o.productType !== ProductType.BULK && o.productType !== ProductType.PREPARED)
   @Type(() => Number)
   @IsNumber()
   @Min(0)
@@ -156,11 +156,17 @@ export class CreateProductDto {
   @IsInt()
   categoryId?: number;
 
-  @ValidateIf((o) => o.productType === ProductType.COMPOSITE)
+  @ValidateIf((o) => o.productType === ProductType.COMPOSITE || o.productType === ProductType.PREPARED)
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => RecipeItemDto)
   recipe?: RecipeItemDto[];
+
+  @ValidateIf((o) => o.productType === ProductType.PREPARED)
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  recipeBatchSize?: number;
 
   @IsOptional()
   @IsBoolean()
@@ -251,4 +257,10 @@ export class UpdateProductDto {
   @ValidateNested({ each: true })
   @Type(() => RecipeItemDto)
   recipe?: RecipeItemDto[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  recipeBatchSize?: number;
 }
