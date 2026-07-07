@@ -49,6 +49,9 @@ export class ReportsService {
 
     const lowQb = this.productRepo.createQueryBuilder('p')
       .where('p.active = true')
+      .andWhere('p.productType IN (:...types)', {
+        types: [ProductType.SIMPLE, ProductType.BULK, ProductType.PREPARED],
+      })
       .andWhere('p.stock <= p.minStock');
     if (storeId) lowQb.andWhere('p.storeId = :storeId', { storeId });
     const lowStock = await lowQb.getCount();

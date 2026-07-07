@@ -24062,7 +24062,9 @@ var require_reports_service = __commonJS({
         if (storeId)
           topQb.andWhere("s.storeId = :storeId", { storeId });
         const topProducts = await topQb.groupBy("si.productName").orderBy("quantity", "DESC").limit(5).getRawMany();
-        const lowQb = this.productRepo.createQueryBuilder("p").where("p.active = true").andWhere("p.stock <= p.minStock");
+        const lowQb = this.productRepo.createQueryBuilder("p").where("p.active = true").andWhere("p.productType IN (:...types)", {
+          types: [enums_1.ProductType.SIMPLE, enums_1.ProductType.BULK, enums_1.ProductType.PREPARED]
+        }).andWhere("p.stock <= p.minStock");
         if (storeId)
           lowQb.andWhere("p.storeId = :storeId", { storeId });
         const lowStock = await lowQb.getCount();
