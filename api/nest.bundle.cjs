@@ -24763,11 +24763,12 @@ var require_tables_service = __commonJS({
             amountPaid: dto.amountPaid
           };
           const sale = await this.salesService.createFromTableOrder(manager, saleDto, userId, storeId);
-          order.status = enums_1.TableOrderStatus.CLOSED;
-          order.closedByUserId = userId;
-          order.saleId = sale.id;
-          order.customerId = saleDto.customerId ?? null;
-          await manager.save(order);
+          await manager.update(table_order_entity_1.TableOrder, { id: order.id }, {
+            status: enums_1.TableOrderStatus.CLOSED,
+            closedByUserId: userId,
+            saleId: sale.id,
+            customerId: saleDto.customerId ?? null
+          });
           return { sale, orderId: order.id, tableId: order.tableId };
         });
       }
