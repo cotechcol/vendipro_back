@@ -102,6 +102,15 @@ export class TablesController {
     return this.service.removeItem(orderId, itemId, ctx);
   }
 
+  @Post('orders/:orderId/release')
+  releaseEmptyOrder(
+    @Param('orderId', ParseIntPipe) orderId: number,
+    @CurrentUser('sub') userId: number,
+    @StoreCtx() ctx: StoreContext,
+  ) {
+    return this.service.releaseEmptyOrder(orderId, userId, ctx);
+  }
+
   @Post('orders/:orderId/close')
   closeOrder(
     @Param('orderId', ParseIntPipe) orderId: number,

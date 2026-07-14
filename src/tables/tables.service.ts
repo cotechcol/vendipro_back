@@ -234,6 +234,35 @@ export class TablesService {
     return this.getOrder(orderId, ctx);
   }
 
+  async releaseEmptyOrder(orderId: number, userId: number, ctx: StoreContext) {
+    const storeId = this.scopeStore(ctx);
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['items'],
+    });
+    if (!order) throw new NotFoundException('Orden de mesa no encontrada');
+    if (order.storeId !== storeId) {
+      throw new ForbiddenException('La orden no pertenece a esta tienda');
+    }
+    if (order.status !== TableOrderStatus.OPEN) {
+      throw new BadRequestException('La orden ya está cerrada');
+    }
+    if (order.items?.length) {
+      throw new BadRequestException('Solo puedes poner disponible una mesa sin productos');
+    }
+
+    order.status = TableOrderStatus.CLOSED;
+    order.closedByUserId = userId;
+    order.saleId = null;
+    await this.orderRepo.save(order);
+
+    return {
+      message: 'Mesa disponible',
+      orderId: order.id,
+      tableId: order.tableId,
+    };
+  }
+
   async closeOrder(
     orderId: number,
     dto: CloseTableOrderDto,

@@ -24706,6 +24706,33 @@ var require_tables_service = __commonJS({
           throw new common_1.NotFoundException("Producto de la mesa no encontrado");
         return this.getOrder(orderId, ctx);
       }
+      async releaseEmptyOrder(orderId, userId, ctx) {
+        const storeId = this.scopeStore(ctx);
+        const order = await this.orderRepo.findOne({
+          where: { id: orderId },
+          relations: ["items"]
+        });
+        if (!order)
+          throw new common_1.NotFoundException("Orden de mesa no encontrada");
+        if (order.storeId !== storeId) {
+          throw new common_1.ForbiddenException("La orden no pertenece a esta tienda");
+        }
+        if (order.status !== enums_1.TableOrderStatus.OPEN) {
+          throw new common_1.BadRequestException("La orden ya est\xE1 cerrada");
+        }
+        if (order.items?.length) {
+          throw new common_1.BadRequestException("Solo puedes poner disponible una mesa sin productos");
+        }
+        order.status = enums_1.TableOrderStatus.CLOSED;
+        order.closedByUserId = userId;
+        order.saleId = null;
+        await this.orderRepo.save(order);
+        return {
+          message: "Mesa disponible",
+          orderId: order.id,
+          tableId: order.tableId
+        };
+      }
       async closeOrder(orderId, dto, userId, ctx) {
         const storeId = this.scopeStore(ctx);
         return this.dataSource.transaction(async (manager) => {
@@ -24890,6 +24917,9 @@ var require_tables_controller = __commonJS({
       removeItem(orderId, itemId, ctx) {
         return this.service.removeItem(orderId, itemId, ctx);
       }
+      releaseEmptyOrder(orderId, userId, ctx) {
+        return this.service.releaseEmptyOrder(orderId, userId, ctx);
+      }
       closeOrder(orderId, dto, userId, ctx) {
         return this.service.closeOrder(orderId, dto, userId, ctx);
       }
@@ -24976,6 +25006,15 @@ var require_tables_controller = __commonJS({
       __metadata("design:paramtypes", [Number, Number, Object]),
       __metadata("design:returntype", void 0)
     ], TablesController.prototype, "removeItem", null);
+    __decorate([
+      (0, common_1.Post)("orders/:orderId/release"),
+      __param(0, (0, common_1.Param)("orderId", common_1.ParseIntPipe)),
+      __param(1, (0, current_user_decorator_1.CurrentUser)("sub")),
+      __param(2, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [Number, Number, Object]),
+      __metadata("design:returntype", void 0)
+    ], TablesController.prototype, "releaseEmptyOrder", null);
     __decorate([
       (0, common_1.Post)("orders/:orderId/close"),
       __param(0, (0, common_1.Param)("orderId", common_1.ParseIntPipe)),
