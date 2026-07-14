@@ -29,7 +29,7 @@ var require_enums = __commonJS({
   "dist/common/enums/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.OptionGroupKind = exports2.StockUnit = exports2.ProductType = exports2.InventoryMovementType = exports2.PaymentMethod = exports2.CashSessionStatus = exports2.UserRole = void 0;
+    exports2.OptionGroupKind = exports2.StockUnit = exports2.ProductType = exports2.InventoryMovementType = exports2.PaymentMethod = exports2.TableOrderStatus = exports2.CashSessionStatus = exports2.UserRole = void 0;
     var UserRole;
     (function(UserRole2) {
       UserRole2["SUPER_ADMIN"] = "super_admin";
@@ -41,6 +41,11 @@ var require_enums = __commonJS({
       CashSessionStatus2["OPEN"] = "open";
       CashSessionStatus2["CLOSED"] = "closed";
     })(CashSessionStatus || (exports2.CashSessionStatus = CashSessionStatus = {}));
+    var TableOrderStatus;
+    (function(TableOrderStatus2) {
+      TableOrderStatus2["OPEN"] = "open";
+      TableOrderStatus2["CLOSED"] = "closed";
+    })(TableOrderStatus || (exports2.TableOrderStatus = TableOrderStatus = {}));
     var PaymentMethod;
     (function(PaymentMethod2) {
       PaymentMethod2["CASH"] = "cash";
@@ -23694,100 +23699,106 @@ var require_sales_service = __commonJS({
       }
       async create(dto, userId, ctx) {
         const storeId = this.scopeStore(ctx);
-        const taxRate = await this.settingsService.getTaxRate(storeId);
         return this.dataSource.transaction(async (manager) => {
-          const cashSession = await manager.findOne(cash_session_entity_1.CashSession, {
-            where: { storeId, userId, status: enums_1.CashSessionStatus.OPEN }
+          return this.createSaleInTransaction(manager, dto, userId, storeId);
+        });
+      }
+      async createFromTableOrder(manager, dto, userId, storeId) {
+        return this.createSaleInTransaction(manager, dto, userId, storeId);
+      }
+      async createSaleInTransaction(manager, dto, userId, storeId) {
+        const taxRate = await this.settingsService.getTaxRate(storeId);
+        const cashSession = await manager.findOne(cash_session_entity_1.CashSession, {
+          where: { storeId, userId, status: enums_1.CashSessionStatus.OPEN }
+        });
+        if (!cashSession) {
+          throw new common_1.BadRequestException("Debes abrir la caja antes de realizar ventas");
+        }
+        const saleItems = [];
+        let totalWithTax = 0;
+        let profit = 0;
+        for (const item of dto.items) {
+          const product = await manager.findOne(product_entity_1.Product, {
+            where: { id: item.productId, storeId },
+            relations: [
+              "baseProduct",
+              "recipe",
+              "recipe.ingredient",
+              "optionGroups",
+              "optionGroups.options",
+              "optionGroups.options.ingredient"
+            ]
           });
-          if (!cashSession) {
-            throw new common_1.BadRequestException("Debes abrir la caja antes de realizar ventas");
+          if (!product || !product.active) {
+            throw new common_1.NotFoundException(`Producto ${item.productId} no encontrado`);
           }
-          const saleItems = [];
-          let totalWithTax = 0;
-          let profit = 0;
-          for (const item of dto.items) {
-            const product = await manager.findOne(product_entity_1.Product, {
-              where: { id: item.productId, storeId },
-              relations: [
-                "baseProduct",
-                "recipe",
-                "recipe.ingredient",
-                "optionGroups",
-                "optionGroups.options",
-                "optionGroups.options.ingredient"
-              ]
-            });
-            if (!product || !product.active) {
-              throw new common_1.NotFoundException(`Producto ${item.productId} no encontrado`);
-            }
-            const deductions = await (0, product_stock_util_1.planStockDeductions)(manager, product, item.quantity, storeId, item.selectedOptionIds);
-            const reference = `SALE-${Date.now()}-${product.id}`;
-            await (0, product_stock_util_1.applyStockDeductions)(manager, deductions, storeId, userId, reference);
-            const unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, item.selectedOptionIds, item.portionScoopCount);
-            const unitCost = (0, product_stock_util_1.calculateSaleUnitCost)(product, item.selectedOptionIds, item.portionScoopCount);
-            const subtotal2 = unitPrice * item.quantity;
-            totalWithTax += subtotal2;
-            profit += (unitPrice - unitCost) * item.quantity;
-            let productName = product.name;
-            let selectedOptions = null;
-            const labels = [];
-            if (item.portionScoopCount && item.portionScoopCount > 0) {
-              labels.push(`${item.portionScoopCount} bola${item.portionScoopCount > 1 ? "s" : ""}`);
-            }
-            if (item.selectedOptionIds?.length) {
-              for (const group of product.optionGroups ?? []) {
-                for (const option of group.options ?? []) {
-                  if (item.selectedOptionIds.includes(option.id)) {
-                    labels.push(option.name);
-                  }
+          const deductions = await (0, product_stock_util_1.planStockDeductions)(manager, product, item.quantity, storeId, item.selectedOptionIds);
+          const reference = `SALE-${Date.now()}-${product.id}`;
+          await (0, product_stock_util_1.applyStockDeductions)(manager, deductions, storeId, userId, reference);
+          const unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, item.selectedOptionIds, item.portionScoopCount);
+          const unitCost = (0, product_stock_util_1.calculateSaleUnitCost)(product, item.selectedOptionIds, item.portionScoopCount);
+          const subtotal2 = unitPrice * item.quantity;
+          totalWithTax += subtotal2;
+          profit += (unitPrice - unitCost) * item.quantity;
+          let productName = product.name;
+          let selectedOptions = null;
+          const labels = [];
+          if (item.portionScoopCount && item.portionScoopCount > 0) {
+            labels.push(`${item.portionScoopCount} bola${item.portionScoopCount > 1 ? "s" : ""}`);
+          }
+          if (item.selectedOptionIds?.length) {
+            for (const group of product.optionGroups ?? []) {
+              for (const option of group.options ?? []) {
+                if (item.selectedOptionIds.includes(option.id)) {
+                  labels.push(option.name);
                 }
               }
             }
-            if (labels.length) {
-              productName = `${product.name} (${labels.join(", ")})`;
-              selectedOptions = {
-                optionIds: item.selectedOptionIds ?? [],
-                labels
-              };
-            }
-            saleItems.push(manager.create(sale_item_entity_1.SaleItem, {
-              productId: product.id,
-              productName,
-              quantity: item.quantity,
-              unitPrice,
-              unitCost,
-              subtotal: subtotal2,
-              selectedOptions
-            }));
           }
-          const { subtotal, taxAmount, total } = (0, tax_util_1.calculateTaxFromIncludedPrice)(totalWithTax, taxRate);
-          let amountPaid = dto.amountPaid ?? total;
-          let change = 0;
-          if (dto.paymentMethod === enums_1.PaymentMethod.CASH || dto.paymentMethod === enums_1.PaymentMethod.MIXED) {
-            if (amountPaid < total) {
-              throw new common_1.BadRequestException("El monto pagado es insuficiente");
-            }
-            change = Number((amountPaid - total).toFixed(2));
-          } else {
-            amountPaid = total;
+          if (labels.length) {
+            productName = `${product.name} (${labels.join(", ")})`;
+            selectedOptions = {
+              optionIds: item.selectedOptionIds ?? [],
+              labels
+            };
           }
-          const sale = manager.create(sale_entity_1.Sale, {
-            storeId,
-            ticketNumber: (0, tax_util_1.generateTicketNumber)(),
-            subtotal,
-            taxAmount,
-            total,
-            profit: Number(profit.toFixed(2)),
-            paymentMethod: dto.paymentMethod,
-            amountPaid,
-            change,
-            customerId: dto.customerId,
-            userId,
-            cashSessionId: cashSession.id,
-            items: saleItems
-          });
-          return manager.save(sale);
+          saleItems.push(manager.create(sale_item_entity_1.SaleItem, {
+            productId: product.id,
+            productName,
+            quantity: item.quantity,
+            unitPrice,
+            unitCost,
+            subtotal: subtotal2,
+            selectedOptions
+          }));
+        }
+        const { subtotal, taxAmount, total } = (0, tax_util_1.calculateTaxFromIncludedPrice)(totalWithTax, taxRate);
+        let amountPaid = dto.amountPaid ?? total;
+        let change = 0;
+        if (dto.paymentMethod === enums_1.PaymentMethod.CASH || dto.paymentMethod === enums_1.PaymentMethod.MIXED) {
+          if (amountPaid < total) {
+            throw new common_1.BadRequestException("El monto pagado es insuficiente");
+          }
+          change = Number((amountPaid - total).toFixed(2));
+        } else {
+          amountPaid = total;
+        }
+        const sale = manager.create(sale_entity_1.Sale, {
+          storeId,
+          ticketNumber: (0, tax_util_1.generateTicketNumber)(),
+          subtotal,
+          taxAmount,
+          total,
+          profit: Number(profit.toFixed(2)),
+          paymentMethod: dto.paymentMethod,
+          amountPaid,
+          change,
+          customerId: dto.customerId,
+          userId,
+          cashSessionId: cashSession.id,
+          items: saleItems
         });
+        return manager.save(sale);
       }
     };
     exports2.SalesService = SalesService;
@@ -24007,6 +24018,1016 @@ var require_sales_module = __commonJS({
         exports: [sales_service_1.SalesService]
       })
     ], SalesModule);
+  }
+});
+
+// dist/tables/entities/table-order-item.entity.js
+var require_table_order_item_entity = __commonJS({
+  "dist/tables/entities/table-order-item.entity.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    var __metadata = exports2 && exports2.__metadata || function(k, v) {
+      if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.TableOrderItem = void 0;
+    var typeorm_1 = require("typeorm");
+    var product_entity_1 = require_product_entity();
+    var table_order_entity_1 = require_table_order_entity();
+    var TableOrderItem = class TableOrderItem {
+      id;
+      orderId;
+      order;
+      productId;
+      product;
+      productName;
+      quantity;
+      unitPrice;
+      selectedOptionIds;
+      optionLabel;
+      portionScoopCount;
+      notes;
+      createdAt;
+      updatedAt;
+    };
+    exports2.TableOrderItem = TableOrderItem;
+    __decorate([
+      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      __metadata("design:type", Number)
+    ], TableOrderItem.prototype, "id", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "order_id" }),
+      __metadata("design:type", Number)
+    ], TableOrderItem.prototype, "orderId", void 0);
+    __decorate([
+      (0, typeorm_1.ManyToOne)(() => table_order_entity_1.TableOrder, (order) => order.items, { onDelete: "CASCADE" }),
+      (0, typeorm_1.JoinColumn)({ name: "order_id" }),
+      __metadata("design:type", table_order_entity_1.TableOrder)
+    ], TableOrderItem.prototype, "order", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "product_id" }),
+      __metadata("design:type", Number)
+    ], TableOrderItem.prototype, "productId", void 0);
+    __decorate([
+      (0, typeorm_1.ManyToOne)(() => product_entity_1.Product),
+      (0, typeorm_1.JoinColumn)({ name: "product_id" }),
+      __metadata("design:type", product_entity_1.Product)
+    ], TableOrderItem.prototype, "product", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "product_name", length: 250 }),
+      __metadata("design:type", String)
+    ], TableOrderItem.prototype, "productName", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ type: "int" }),
+      __metadata("design:type", Number)
+    ], TableOrderItem.prototype, "quantity", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "unit_price", type: "decimal", precision: 12, scale: 2 }),
+      __metadata("design:type", Number)
+    ], TableOrderItem.prototype, "unitPrice", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "selected_option_ids", type: "json", nullable: true }),
+      __metadata("design:type", Object)
+    ], TableOrderItem.prototype, "selectedOptionIds", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "option_label", length: 250, nullable: true }),
+      __metadata("design:type", Object)
+    ], TableOrderItem.prototype, "optionLabel", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "portion_scoop_count", type: "int", nullable: true }),
+      __metadata("design:type", Object)
+    ], TableOrderItem.prototype, "portionScoopCount", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      __metadata("design:type", Object)
+    ], TableOrderItem.prototype, "notes", void 0);
+    __decorate([
+      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      __metadata("design:type", Date)
+    ], TableOrderItem.prototype, "createdAt", void 0);
+    __decorate([
+      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      __metadata("design:type", Date)
+    ], TableOrderItem.prototype, "updatedAt", void 0);
+    exports2.TableOrderItem = TableOrderItem = __decorate([
+      (0, typeorm_1.Entity)("table_order_items")
+    ], TableOrderItem);
+  }
+});
+
+// dist/tables/entities/table-order.entity.js
+var require_table_order_entity = __commonJS({
+  "dist/tables/entities/table-order.entity.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    var __metadata = exports2 && exports2.__metadata || function(k, v) {
+      if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.TableOrder = void 0;
+    var typeorm_1 = require("typeorm");
+    var enums_1 = require_enums();
+    var customer_entity_1 = require_customer_entity();
+    var sale_entity_1 = require_sale_entity();
+    var store_entity_1 = require_store_entity();
+    var user_entity_1 = require_user_entity();
+    var restaurant_table_entity_1 = require_restaurant_table_entity();
+    var table_order_item_entity_1 = require_table_order_item_entity();
+    var TableOrder = class TableOrder {
+      id;
+      storeId;
+      store;
+      tableId;
+      table;
+      status;
+      customerId;
+      customer;
+      notes;
+      openedByUserId;
+      openedByUser;
+      closedByUserId;
+      closedByUser;
+      saleId;
+      sale;
+      items;
+      createdAt;
+      updatedAt;
+    };
+    exports2.TableOrder = TableOrder;
+    __decorate([
+      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      __metadata("design:type", Number)
+    ], TableOrder.prototype, "id", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "store_id" }),
+      __metadata("design:type", Number)
+    ], TableOrder.prototype, "storeId", void 0);
+    __decorate([
+      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      __metadata("design:type", store_entity_1.Store)
+    ], TableOrder.prototype, "store", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "table_id" }),
+      __metadata("design:type", Number)
+    ], TableOrder.prototype, "tableId", void 0);
+    __decorate([
+      (0, typeorm_1.ManyToOne)(() => restaurant_table_entity_1.RestaurantTable, (table) => table.orders),
+      (0, typeorm_1.JoinColumn)({ name: "table_id" }),
+      __metadata("design:type", restaurant_table_entity_1.RestaurantTable)
+    ], TableOrder.prototype, "table", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ type: "enum", enum: enums_1.TableOrderStatus, default: enums_1.TableOrderStatus.OPEN }),
+      __metadata("design:type", String)
+    ], TableOrder.prototype, "status", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "customer_id", nullable: true }),
+      __metadata("design:type", Object)
+    ], TableOrder.prototype, "customerId", void 0);
+    __decorate([
+      (0, typeorm_1.ManyToOne)(() => customer_entity_1.Customer, { nullable: true }),
+      (0, typeorm_1.JoinColumn)({ name: "customer_id" }),
+      __metadata("design:type", Object)
+    ], TableOrder.prototype, "customer", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      __metadata("design:type", Object)
+    ], TableOrder.prototype, "notes", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "opened_by_user_id" }),
+      __metadata("design:type", Number)
+    ], TableOrder.prototype, "openedByUserId", void 0);
+    __decorate([
+      (0, typeorm_1.ManyToOne)(() => user_entity_1.User),
+      (0, typeorm_1.JoinColumn)({ name: "opened_by_user_id" }),
+      __metadata("design:type", user_entity_1.User)
+    ], TableOrder.prototype, "openedByUser", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "closed_by_user_id", nullable: true }),
+      __metadata("design:type", Object)
+    ], TableOrder.prototype, "closedByUserId", void 0);
+    __decorate([
+      (0, typeorm_1.ManyToOne)(() => user_entity_1.User, { nullable: true }),
+      (0, typeorm_1.JoinColumn)({ name: "closed_by_user_id" }),
+      __metadata("design:type", Object)
+    ], TableOrder.prototype, "closedByUser", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "sale_id", nullable: true }),
+      __metadata("design:type", Object)
+    ], TableOrder.prototype, "saleId", void 0);
+    __decorate([
+      (0, typeorm_1.ManyToOne)(() => sale_entity_1.Sale, { nullable: true }),
+      (0, typeorm_1.JoinColumn)({ name: "sale_id" }),
+      __metadata("design:type", Object)
+    ], TableOrder.prototype, "sale", void 0);
+    __decorate([
+      (0, typeorm_1.OneToMany)(() => table_order_item_entity_1.TableOrderItem, (item) => item.order, { cascade: true }),
+      __metadata("design:type", Array)
+    ], TableOrder.prototype, "items", void 0);
+    __decorate([
+      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      __metadata("design:type", Date)
+    ], TableOrder.prototype, "createdAt", void 0);
+    __decorate([
+      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      __metadata("design:type", Date)
+    ], TableOrder.prototype, "updatedAt", void 0);
+    exports2.TableOrder = TableOrder = __decorate([
+      (0, typeorm_1.Entity)("table_orders")
+    ], TableOrder);
+  }
+});
+
+// dist/tables/entities/restaurant-table.entity.js
+var require_restaurant_table_entity = __commonJS({
+  "dist/tables/entities/restaurant-table.entity.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    var __metadata = exports2 && exports2.__metadata || function(k, v) {
+      if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.RestaurantTable = void 0;
+    var typeorm_1 = require("typeorm");
+    var store_entity_1 = require_store_entity();
+    var table_order_entity_1 = require_table_order_entity();
+    var RestaurantTable = class RestaurantTable {
+      id;
+      storeId;
+      store;
+      name;
+      capacity;
+      active;
+      sortOrder;
+      orders;
+      createdAt;
+      updatedAt;
+    };
+    exports2.RestaurantTable = RestaurantTable;
+    __decorate([
+      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      __metadata("design:type", Number)
+    ], RestaurantTable.prototype, "id", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "store_id" }),
+      __metadata("design:type", Number)
+    ], RestaurantTable.prototype, "storeId", void 0);
+    __decorate([
+      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      __metadata("design:type", store_entity_1.Store)
+    ], RestaurantTable.prototype, "store", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ length: 100 }),
+      __metadata("design:type", String)
+    ], RestaurantTable.prototype, "name", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ default: 4 }),
+      __metadata("design:type", Number)
+    ], RestaurantTable.prototype, "capacity", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ default: true }),
+      __metadata("design:type", Boolean)
+    ], RestaurantTable.prototype, "active", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "sort_order", default: 0 }),
+      __metadata("design:type", Number)
+    ], RestaurantTable.prototype, "sortOrder", void 0);
+    __decorate([
+      (0, typeorm_1.OneToMany)(() => table_order_entity_1.TableOrder, (order) => order.table),
+      __metadata("design:type", Array)
+    ], RestaurantTable.prototype, "orders", void 0);
+    __decorate([
+      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      __metadata("design:type", Date)
+    ], RestaurantTable.prototype, "createdAt", void 0);
+    __decorate([
+      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      __metadata("design:type", Date)
+    ], RestaurantTable.prototype, "updatedAt", void 0);
+    exports2.RestaurantTable = RestaurantTable = __decorate([
+      (0, typeorm_1.Entity)("restaurant_tables"),
+      (0, typeorm_1.Unique)(["storeId", "name"])
+    ], RestaurantTable);
+  }
+});
+
+// dist/tables/dto/table.dto.js
+var require_table_dto = __commonJS({
+  "dist/tables/dto/table.dto.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    var __metadata = exports2 && exports2.__metadata || function(k, v) {
+      if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.CloseTableOrderDto = exports2.UpdateTableOrderItemDto = exports2.AddTableOrderItemDto = exports2.OpenTableOrderDto = exports2.UpdateTableDto = exports2.CreateTableDto = void 0;
+    var class_validator_1 = require("class-validator");
+    var class_transformer_1 = require("class-transformer");
+    var enums_1 = require_enums();
+    var CreateTableDto = class {
+      name;
+      capacity;
+      sortOrder;
+    };
+    exports2.CreateTableDto = CreateTableDto;
+    __decorate([
+      (0, class_validator_1.IsString)(),
+      (0, class_validator_1.MinLength)(1),
+      __metadata("design:type", String)
+    ], CreateTableDto.prototype, "name", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      (0, class_validator_1.Min)(1),
+      __metadata("design:type", Number)
+    ], CreateTableDto.prototype, "capacity", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      (0, class_validator_1.Min)(0),
+      __metadata("design:type", Number)
+    ], CreateTableDto.prototype, "sortOrder", void 0);
+    var UpdateTableDto = class {
+      name;
+      capacity;
+      active;
+      sortOrder;
+    };
+    exports2.UpdateTableDto = UpdateTableDto;
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsString)(),
+      (0, class_validator_1.MinLength)(1),
+      __metadata("design:type", String)
+    ], UpdateTableDto.prototype, "name", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      (0, class_validator_1.Min)(1),
+      __metadata("design:type", Number)
+    ], UpdateTableDto.prototype, "capacity", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsBoolean)(),
+      __metadata("design:type", Boolean)
+    ], UpdateTableDto.prototype, "active", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      (0, class_validator_1.Min)(0),
+      __metadata("design:type", Number)
+    ], UpdateTableDto.prototype, "sortOrder", void 0);
+    var OpenTableOrderDto = class {
+      customerId;
+      notes;
+    };
+    exports2.OpenTableOrderDto = OpenTableOrderDto;
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      __metadata("design:type", Number)
+    ], OpenTableOrderDto.prototype, "customerId", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsString)(),
+      __metadata("design:type", String)
+    ], OpenTableOrderDto.prototype, "notes", void 0);
+    var AddTableOrderItemDto = class {
+      productId;
+      quantity;
+      selectedOptionIds;
+      optionLabel;
+      portionScoopCount;
+      notes;
+    };
+    exports2.AddTableOrderItemDto = AddTableOrderItemDto;
+    __decorate([
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      __metadata("design:type", Number)
+    ], AddTableOrderItemDto.prototype, "productId", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      (0, class_validator_1.Min)(1),
+      __metadata("design:type", Number)
+    ], AddTableOrderItemDto.prototype, "quantity", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsArray)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)({ each: true }),
+      __metadata("design:type", Array)
+    ], AddTableOrderItemDto.prototype, "selectedOptionIds", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsString)(),
+      __metadata("design:type", String)
+    ], AddTableOrderItemDto.prototype, "optionLabel", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      (0, class_validator_1.Min)(1),
+      __metadata("design:type", Number)
+    ], AddTableOrderItemDto.prototype, "portionScoopCount", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsString)(),
+      __metadata("design:type", String)
+    ], AddTableOrderItemDto.prototype, "notes", void 0);
+    var UpdateTableOrderItemDto = class {
+      quantity;
+      notes;
+    };
+    exports2.UpdateTableOrderItemDto = UpdateTableOrderItemDto;
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      (0, class_validator_1.Min)(1),
+      __metadata("design:type", Number)
+    ], UpdateTableOrderItemDto.prototype, "quantity", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsString)(),
+      __metadata("design:type", String)
+    ], UpdateTableOrderItemDto.prototype, "notes", void 0);
+    var CloseTableOrderDto = class {
+      customerId;
+      paymentMethod;
+      amountPaid;
+    };
+    exports2.CloseTableOrderDto = CloseTableOrderDto;
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      __metadata("design:type", Number)
+    ], CloseTableOrderDto.prototype, "customerId", void 0);
+    __decorate([
+      (0, class_validator_1.IsEnum)(enums_1.PaymentMethod),
+      __metadata("design:type", String)
+    ], CloseTableOrderDto.prototype, "paymentMethod", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsNumber)(),
+      (0, class_validator_1.Min)(0),
+      __metadata("design:type", Number)
+    ], CloseTableOrderDto.prototype, "amountPaid", void 0);
+  }
+});
+
+// dist/tables/tables.service.js
+var require_tables_service = __commonJS({
+  "dist/tables/tables.service.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    var __metadata = exports2 && exports2.__metadata || function(k, v) {
+      if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+    };
+    var __param = exports2 && exports2.__param || function(paramIndex, decorator) {
+      return function(target, key) {
+        decorator(target, key, paramIndex);
+      };
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.TablesService = void 0;
+    var common_1 = require("@nestjs/common");
+    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_2 = require("typeorm");
+    var enums_1 = require_enums();
+    var store_context_util_1 = require_store_context_util();
+    var product_entity_1 = require_product_entity();
+    var product_stock_util_1 = require_product_stock_util();
+    var sales_service_1 = require_sales_service();
+    var restaurant_table_entity_1 = require_restaurant_table_entity();
+    var table_order_entity_1 = require_table_order_entity();
+    var table_order_item_entity_1 = require_table_order_item_entity();
+    var TablesService = class TablesService {
+      tableRepo;
+      orderRepo;
+      itemRepo;
+      dataSource;
+      salesService;
+      constructor(tableRepo, orderRepo, itemRepo, dataSource, salesService) {
+        this.tableRepo = tableRepo;
+        this.orderRepo = orderRepo;
+        this.itemRepo = itemRepo;
+        this.dataSource = dataSource;
+        this.salesService = salesService;
+      }
+      scopeStore(ctx) {
+        return (0, store_context_util_1.requireStoreId)(ctx);
+      }
+      async list(ctx) {
+        const storeId = this.scopeStore(ctx);
+        const [tables, openOrders] = await Promise.all([
+          this.tableRepo.find({
+            where: { storeId, active: true },
+            order: { sortOrder: "ASC", name: "ASC" }
+          }),
+          this.orderRepo.find({
+            where: { storeId, status: enums_1.TableOrderStatus.OPEN },
+            relations: ["items"]
+          })
+        ]);
+        const ordersByTable = new Map(openOrders.map((order) => [order.tableId, order]));
+        return tables.map((table) => {
+          const openOrder = ordersByTable.get(table.id) ?? null;
+          const items = openOrder?.items ?? [];
+          const total = items.reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.quantity), 0);
+          const itemCount = items.reduce((sum, item) => sum + Number(item.quantity), 0);
+          return {
+            ...table,
+            status: openOrder ? "occupied" : "free",
+            openOrder: openOrder ? {
+              id: openOrder.id,
+              customerId: openOrder.customerId,
+              notes: openOrder.notes,
+              total: Number(total.toFixed(2)),
+              itemCount,
+              createdAt: openOrder.createdAt
+            } : null
+          };
+        });
+      }
+      async create(dto, ctx) {
+        const storeId = this.scopeStore(ctx);
+        try {
+          return await this.tableRepo.save(this.tableRepo.create({
+            storeId,
+            name: dto.name.trim(),
+            capacity: dto.capacity ?? 4,
+            sortOrder: dto.sortOrder ?? 0
+          }));
+        } catch {
+          throw new common_1.ConflictException("Ya existe una mesa con ese nombre en esta tienda");
+        }
+      }
+      async update(id, dto, ctx) {
+        const storeId = this.scopeStore(ctx);
+        const table = await this.getTable(id, storeId);
+        if (dto.active === false) {
+          await this.assertNoOpenOrder(table.id, storeId);
+        }
+        if (dto.name !== void 0)
+          table.name = dto.name.trim();
+        if (dto.capacity !== void 0)
+          table.capacity = dto.capacity;
+        if (dto.active !== void 0)
+          table.active = dto.active;
+        if (dto.sortOrder !== void 0)
+          table.sortOrder = dto.sortOrder;
+        try {
+          return await this.tableRepo.save(table);
+        } catch {
+          throw new common_1.ConflictException("Ya existe una mesa con ese nombre en esta tienda");
+        }
+      }
+      async remove(id, ctx) {
+        const storeId = this.scopeStore(ctx);
+        const table = await this.getTable(id, storeId);
+        await this.assertNoOpenOrder(table.id, storeId);
+        table.active = false;
+        await this.tableRepo.save(table);
+        return { message: "Mesa desactivada" };
+      }
+      async open(tableId, dto, userId, ctx) {
+        const storeId = this.scopeStore(ctx);
+        const table = await this.getTable(tableId, storeId);
+        if (!table.active)
+          throw new common_1.BadRequestException("La mesa est\xE1 inactiva");
+        const existing = await this.orderRepo.findOne({
+          where: { tableId, storeId, status: enums_1.TableOrderStatus.OPEN }
+        });
+        if (existing)
+          return this.getOrder(existing.id, ctx);
+        const order = await this.orderRepo.save(this.orderRepo.create({
+          storeId,
+          tableId,
+          status: enums_1.TableOrderStatus.OPEN,
+          customerId: dto.customerId ?? null,
+          notes: dto.notes?.trim() || null,
+          openedByUserId: userId
+        }));
+        return this.getOrder(order.id, ctx);
+      }
+      async getOrder(orderId, ctx) {
+        const storeId = this.scopeStore(ctx);
+        const order = await this.orderRepo.findOne({
+          where: { id: orderId },
+          relations: ["table", "items", "customer", "sale"],
+          order: { items: { createdAt: "ASC" } }
+        });
+        if (!order)
+          throw new common_1.NotFoundException("Orden de mesa no encontrada");
+        if (order.storeId !== storeId) {
+          throw new common_1.ForbiddenException("La orden no pertenece a esta tienda");
+        }
+        return this.enrichOrder(order);
+      }
+      async addItem(orderId, dto, ctx) {
+        const storeId = this.scopeStore(ctx);
+        const order = await this.getOpenOrder(orderId, storeId);
+        const quantity = dto.quantity ?? 1;
+        const product = await this.loadProduct(dto.productId, storeId);
+        await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, quantity, storeId, dto.selectedOptionIds);
+        const optionLabel = dto.optionLabel?.trim() || this.buildOptionLabel(product, dto.selectedOptionIds, dto.portionScoopCount);
+        const productName = optionLabel ? `${product.name} (${optionLabel})` : product.name;
+        const unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, dto.selectedOptionIds, dto.portionScoopCount);
+        await this.itemRepo.save(this.itemRepo.create({
+          orderId: order.id,
+          productId: product.id,
+          productName,
+          quantity,
+          unitPrice,
+          selectedOptionIds: dto.selectedOptionIds?.length ? dto.selectedOptionIds : null,
+          optionLabel: optionLabel || null,
+          portionScoopCount: dto.portionScoopCount ?? null,
+          notes: dto.notes?.trim() || null
+        }));
+        return this.getOrder(order.id, ctx);
+      }
+      async updateItem(orderId, itemId, dto, ctx) {
+        const storeId = this.scopeStore(ctx);
+        await this.getOpenOrder(orderId, storeId);
+        const item = await this.itemRepo.findOne({ where: { id: itemId, orderId } });
+        if (!item)
+          throw new common_1.NotFoundException("Producto de la mesa no encontrado");
+        if (dto.quantity !== void 0) {
+          const product = await this.loadProduct(item.productId, storeId);
+          await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, dto.quantity, storeId, item.selectedOptionIds ?? void 0);
+          item.quantity = dto.quantity;
+        }
+        if (dto.notes !== void 0)
+          item.notes = dto.notes.trim() || null;
+        await this.itemRepo.save(item);
+        return this.getOrder(orderId, ctx);
+      }
+      async removeItem(orderId, itemId, ctx) {
+        const storeId = this.scopeStore(ctx);
+        await this.getOpenOrder(orderId, storeId);
+        const result = await this.itemRepo.delete({ id: itemId, orderId });
+        if (!result.affected)
+          throw new common_1.NotFoundException("Producto de la mesa no encontrado");
+        return this.getOrder(orderId, ctx);
+      }
+      async closeOrder(orderId, dto, userId, ctx) {
+        const storeId = this.scopeStore(ctx);
+        return this.dataSource.transaction(async (manager) => {
+          const order = await manager.findOne(table_order_entity_1.TableOrder, {
+            where: { id: orderId },
+            relations: ["items"]
+          });
+          if (!order)
+            throw new common_1.NotFoundException("Orden de mesa no encontrada");
+          if (order.storeId !== storeId) {
+            throw new common_1.ForbiddenException("La orden no pertenece a esta tienda");
+          }
+          if (order.status !== enums_1.TableOrderStatus.OPEN) {
+            throw new common_1.BadRequestException("La orden ya est\xE1 cerrada");
+          }
+          if (!order.items?.length) {
+            throw new common_1.BadRequestException("La mesa no tiene productos para cobrar");
+          }
+          const saleDto = {
+            items: order.items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              selectedOptionIds: item.selectedOptionIds ?? void 0,
+              portionScoopCount: item.portionScoopCount ?? void 0
+            })),
+            customerId: dto.customerId ?? order.customerId ?? void 0,
+            paymentMethod: dto.paymentMethod ?? enums_1.PaymentMethod.CASH,
+            amountPaid: dto.amountPaid
+          };
+          const sale = await this.salesService.createFromTableOrder(manager, saleDto, userId, storeId);
+          order.status = enums_1.TableOrderStatus.CLOSED;
+          order.closedByUserId = userId;
+          order.saleId = sale.id;
+          order.customerId = saleDto.customerId ?? null;
+          await manager.save(order);
+          return { sale, orderId: order.id, tableId: order.tableId };
+        });
+      }
+      async getTable(id, storeId) {
+        const table = await this.tableRepo.findOne({ where: { id, storeId } });
+        if (!table)
+          throw new common_1.NotFoundException("Mesa no encontrada");
+        return table;
+      }
+      async assertNoOpenOrder(tableId, storeId) {
+        const count = await this.orderRepo.count({
+          where: { tableId, storeId, status: enums_1.TableOrderStatus.OPEN }
+        });
+        if (count > 0) {
+          throw new common_1.BadRequestException("No se puede modificar una mesa con cuenta abierta");
+        }
+      }
+      async getOpenOrder(orderId, storeId) {
+        const order = await this.orderRepo.findOne({ where: { id: orderId } });
+        if (!order)
+          throw new common_1.NotFoundException("Orden de mesa no encontrada");
+        if (order.storeId !== storeId) {
+          throw new common_1.ForbiddenException("La orden no pertenece a esta tienda");
+        }
+        if (order.status !== enums_1.TableOrderStatus.OPEN) {
+          throw new common_1.BadRequestException("La orden ya est\xE1 cerrada");
+        }
+        return order;
+      }
+      async loadProduct(productId, storeId) {
+        const product = await this.dataSource.manager.findOne(product_entity_1.Product, {
+          where: { id: productId, storeId },
+          relations: [
+            "baseProduct",
+            "recipe",
+            "recipe.ingredient",
+            "optionGroups",
+            "optionGroups.options",
+            "optionGroups.options.ingredient"
+          ]
+        });
+        if (!product || !product.active) {
+          throw new common_1.NotFoundException(`Producto ${productId} no encontrado`);
+        }
+        return product;
+      }
+      buildOptionLabel(product, selectedOptionIds, portionScoopCount) {
+        const labels = [];
+        if (portionScoopCount && portionScoopCount > 0) {
+          labels.push(`${portionScoopCount} bola${portionScoopCount > 1 ? "s" : ""}`);
+        }
+        if (selectedOptionIds?.length) {
+          for (const group of product.optionGroups ?? []) {
+            for (const option of group.options ?? []) {
+              if (selectedOptionIds.includes(option.id))
+                labels.push(option.name);
+            }
+          }
+        }
+        return labels.join(", ");
+      }
+      enrichOrder(order) {
+        const total = (order.items ?? []).reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.quantity), 0);
+        const itemCount = (order.items ?? []).reduce((sum, item) => sum + Number(item.quantity), 0);
+        return {
+          ...order,
+          total: Number(total.toFixed(2)),
+          itemCount
+        };
+      }
+    };
+    exports2.TablesService = TablesService;
+    exports2.TablesService = TablesService = __decorate([
+      (0, common_1.Injectable)(),
+      __param(0, (0, typeorm_1.InjectRepository)(restaurant_table_entity_1.RestaurantTable)),
+      __param(1, (0, typeorm_1.InjectRepository)(table_order_entity_1.TableOrder)),
+      __param(2, (0, typeorm_1.InjectRepository)(table_order_item_entity_1.TableOrderItem)),
+      __metadata("design:paramtypes", [
+        typeorm_2.Repository,
+        typeorm_2.Repository,
+        typeorm_2.Repository,
+        typeorm_2.DataSource,
+        sales_service_1.SalesService
+      ])
+    ], TablesService);
+  }
+});
+
+// dist/tables/tables.controller.js
+var require_tables_controller = __commonJS({
+  "dist/tables/tables.controller.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    var __metadata = exports2 && exports2.__metadata || function(k, v) {
+      if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+    };
+    var __param = exports2 && exports2.__param || function(paramIndex, decorator) {
+      return function(target, key) {
+        decorator(target, key, paramIndex);
+      };
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.TablesController = void 0;
+    var common_1 = require("@nestjs/common");
+    var jwt_auth_guard_1 = require_jwt_auth_guard();
+    var roles_decorator_1 = require_roles_decorator();
+    var current_user_decorator_1 = require_current_user_decorator();
+    var store_context_decorator_1 = require_store_context_decorator();
+    var roles_guard_1 = require_roles_guard();
+    var enums_1 = require_enums();
+    var table_dto_1 = require_table_dto();
+    var tables_service_1 = require_tables_service();
+    var TablesController = class TablesController {
+      service;
+      constructor(service) {
+        this.service = service;
+      }
+      list(ctx) {
+        return this.service.list(ctx);
+      }
+      create(dto, ctx) {
+        return this.service.create(dto, ctx);
+      }
+      update(id, dto, ctx) {
+        return this.service.update(id, dto, ctx);
+      }
+      remove(id, ctx) {
+        return this.service.remove(id, ctx);
+      }
+      open(id, dto, userId, ctx) {
+        return this.service.open(id, dto, userId, ctx);
+      }
+      getOrder(orderId, ctx) {
+        return this.service.getOrder(orderId, ctx);
+      }
+      addItem(orderId, dto, ctx) {
+        return this.service.addItem(orderId, dto, ctx);
+      }
+      updateItem(orderId, itemId, dto, ctx) {
+        return this.service.updateItem(orderId, itemId, dto, ctx);
+      }
+      removeItem(orderId, itemId, ctx) {
+        return this.service.removeItem(orderId, itemId, ctx);
+      }
+      closeOrder(orderId, dto, userId, ctx) {
+        return this.service.closeOrder(orderId, dto, userId, ctx);
+      }
+    };
+    exports2.TablesController = TablesController;
+    __decorate([
+      (0, common_1.Get)(),
+      __param(0, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [Object]),
+      __metadata("design:returntype", void 0)
+    ], TablesController.prototype, "list", null);
+    __decorate([
+      (0, common_1.Post)(),
+      (0, roles_decorator_1.Roles)(enums_1.UserRole.SUPER_ADMIN, enums_1.UserRole.ADMIN),
+      __param(0, (0, common_1.Body)()),
+      __param(1, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [table_dto_1.CreateTableDto, Object]),
+      __metadata("design:returntype", void 0)
+    ], TablesController.prototype, "create", null);
+    __decorate([
+      (0, common_1.Patch)(":id"),
+      (0, roles_decorator_1.Roles)(enums_1.UserRole.SUPER_ADMIN, enums_1.UserRole.ADMIN),
+      __param(0, (0, common_1.Param)("id", common_1.ParseIntPipe)),
+      __param(1, (0, common_1.Body)()),
+      __param(2, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [Number, table_dto_1.UpdateTableDto, Object]),
+      __metadata("design:returntype", void 0)
+    ], TablesController.prototype, "update", null);
+    __decorate([
+      (0, common_1.Delete)(":id"),
+      (0, roles_decorator_1.Roles)(enums_1.UserRole.SUPER_ADMIN, enums_1.UserRole.ADMIN),
+      __param(0, (0, common_1.Param)("id", common_1.ParseIntPipe)),
+      __param(1, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [Number, Object]),
+      __metadata("design:returntype", void 0)
+    ], TablesController.prototype, "remove", null);
+    __decorate([
+      (0, common_1.Post)(":id/open"),
+      __param(0, (0, common_1.Param)("id", common_1.ParseIntPipe)),
+      __param(1, (0, common_1.Body)()),
+      __param(2, (0, current_user_decorator_1.CurrentUser)("sub")),
+      __param(3, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [Number, table_dto_1.OpenTableOrderDto, Number, Object]),
+      __metadata("design:returntype", void 0)
+    ], TablesController.prototype, "open", null);
+    __decorate([
+      (0, common_1.Get)("orders/:orderId"),
+      __param(0, (0, common_1.Param)("orderId", common_1.ParseIntPipe)),
+      __param(1, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [Number, Object]),
+      __metadata("design:returntype", void 0)
+    ], TablesController.prototype, "getOrder", null);
+    __decorate([
+      (0, common_1.Post)("orders/:orderId/items"),
+      __param(0, (0, common_1.Param)("orderId", common_1.ParseIntPipe)),
+      __param(1, (0, common_1.Body)()),
+      __param(2, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [Number, table_dto_1.AddTableOrderItemDto, Object]),
+      __metadata("design:returntype", void 0)
+    ], TablesController.prototype, "addItem", null);
+    __decorate([
+      (0, common_1.Patch)("orders/:orderId/items/:itemId"),
+      __param(0, (0, common_1.Param)("orderId", common_1.ParseIntPipe)),
+      __param(1, (0, common_1.Param)("itemId", common_1.ParseIntPipe)),
+      __param(2, (0, common_1.Body)()),
+      __param(3, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [Number, Number, table_dto_1.UpdateTableOrderItemDto, Object]),
+      __metadata("design:returntype", void 0)
+    ], TablesController.prototype, "updateItem", null);
+    __decorate([
+      (0, common_1.Delete)("orders/:orderId/items/:itemId"),
+      __param(0, (0, common_1.Param)("orderId", common_1.ParseIntPipe)),
+      __param(1, (0, common_1.Param)("itemId", common_1.ParseIntPipe)),
+      __param(2, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [Number, Number, Object]),
+      __metadata("design:returntype", void 0)
+    ], TablesController.prototype, "removeItem", null);
+    __decorate([
+      (0, common_1.Post)("orders/:orderId/close"),
+      __param(0, (0, common_1.Param)("orderId", common_1.ParseIntPipe)),
+      __param(1, (0, common_1.Body)()),
+      __param(2, (0, current_user_decorator_1.CurrentUser)("sub")),
+      __param(3, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [Number, table_dto_1.CloseTableOrderDto, Number, Object]),
+      __metadata("design:returntype", void 0)
+    ], TablesController.prototype, "closeOrder", null);
+    exports2.TablesController = TablesController = __decorate([
+      (0, common_1.Controller)("tables"),
+      (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+      (0, roles_decorator_1.Roles)(enums_1.UserRole.SUPER_ADMIN, enums_1.UserRole.ADMIN, enums_1.UserRole.CASHIER),
+      __metadata("design:paramtypes", [tables_service_1.TablesService])
+    ], TablesController);
+  }
+});
+
+// dist/tables/tables.module.js
+var require_tables_module = __commonJS({
+  "dist/tables/tables.module.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.TablesModule = void 0;
+    var common_1 = require("@nestjs/common");
+    var typeorm_1 = require("@nestjs/typeorm");
+    var sales_module_1 = require_sales_module();
+    var restaurant_table_entity_1 = require_restaurant_table_entity();
+    var table_order_entity_1 = require_table_order_entity();
+    var table_order_item_entity_1 = require_table_order_item_entity();
+    var tables_controller_1 = require_tables_controller();
+    var tables_service_1 = require_tables_service();
+    var TablesModule = class TablesModule {
+    };
+    exports2.TablesModule = TablesModule;
+    exports2.TablesModule = TablesModule = __decorate([
+      (0, common_1.Module)({
+        imports: [
+          typeorm_1.TypeOrmModule.forFeature([restaurant_table_entity_1.RestaurantTable, table_order_entity_1.TableOrder, table_order_item_entity_1.TableOrderItem]),
+          sales_module_1.SalesModule
+        ],
+        controllers: [tables_controller_1.TablesController],
+        providers: [tables_service_1.TablesService]
+      })
+    ], TablesModule);
   }
 });
 
@@ -25705,6 +26726,7 @@ var require_app_module = __commonJS({
     var purchases_module_1 = require_purchases_module();
     var cash_sessions_module_1 = require_cash_sessions_module();
     var sales_module_1 = require_sales_module();
+    var tables_module_1 = require_tables_module();
     var reports_module_1 = require_reports_module();
     var seed_module_1 = require_seed_module();
     var storage_module_1 = require_storage_module();
@@ -25724,6 +26746,9 @@ var require_app_module = __commonJS({
     var cash_session_entity_1 = require_cash_session_entity();
     var sale_entity_1 = require_sale_entity();
     var sale_item_entity_1 = require_sale_item_entity();
+    var restaurant_table_entity_1 = require_restaurant_table_entity();
+    var table_order_entity_1 = require_table_order_entity();
+    var table_order_item_entity_1 = require_table_order_item_entity();
     var AppModule = class AppModule {
     };
     exports2.AppModule = AppModule;
@@ -25763,7 +26788,10 @@ var require_app_module = __commonJS({
                   purchase_item_entity_1.PurchaseItem,
                   cash_session_entity_1.CashSession,
                   sale_entity_1.Sale,
-                  sale_item_entity_1.SaleItem
+                  sale_item_entity_1.SaleItem,
+                  restaurant_table_entity_1.RestaurantTable,
+                  table_order_entity_1.TableOrder,
+                  table_order_item_entity_1.TableOrderItem
                 ],
                 synchronize: false,
                 timezone: "Z",
@@ -25789,6 +26817,7 @@ var require_app_module = __commonJS({
           purchases_module_1.PurchasesModule,
           cash_sessions_module_1.CashSessionsModule,
           sales_module_1.SalesModule,
+          tables_module_1.TablesModule,
           reports_module_1.ReportsModule,
           seed_module_1.SeedModule
         ],

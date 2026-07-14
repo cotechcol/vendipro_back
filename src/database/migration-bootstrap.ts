@@ -1,6 +1,7 @@
 import { runStoreMigration } from './store-migration';
 import { runProductMigration } from './product-migration';
 import { runSupplierMigration } from './supplier-migration';
+import { runTableMigration } from './table-migration';
 
 let migrationPromise: Promise<void> | null = null;
 
@@ -11,6 +12,7 @@ export function ensureDatabaseMigrations(): Promise<void> {
       await runStoreMigration();
       await runProductMigration();
       await runSupplierMigration();
+      await runTableMigration();
       console.log('[migration] Esquema verificado');
     })().catch((err) => {
       migrationPromise = null;

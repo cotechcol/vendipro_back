@@ -22,10 +22,12 @@ const database = process.env.DB_DATABASE ?? 'pos_db';
 console.log(`Migrando ${database} en ${host}...`);
 
 const { runProductMigration } = require('../dist/database/product-migration.js');
+const { runTableMigration } = require('../dist/database/table-migration.js');
 
 runProductMigration()
+  .then(() => runTableMigration())
   .then(() => {
-    console.log('OK — migración de productos aplicada');
+    console.log('OK — migraciones aplicadas');
   })
   .catch((err) => {
     console.error('Error:', err.message ?? err);

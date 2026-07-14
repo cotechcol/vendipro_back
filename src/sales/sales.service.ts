@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between } from 'typeorm';
+import { Repository, DataSource, Between, EntityManager } from 'typeorm';
 import { Sale } from './entities/sale.entity';
 import { SaleItem } from './entities/sale-item.entity';
 import { Product } from '../products/entities/product.entity';
@@ -65,118 +65,136 @@ export class SalesService {
 
   async create(dto: CreateSaleDto, userId: number, ctx: StoreContext) {
     const storeId = this.scopeStore(ctx);
-    const taxRate = await this.settingsService.getTaxRate(storeId);
 
     return this.dataSource.transaction(async (manager) => {
-      const cashSession = await manager.findOne(CashSession, {
-        where: { storeId, userId, status: CashSessionStatus.OPEN },
+      return this.createSaleInTransaction(manager, dto, userId, storeId);
+    });
+  }
+
+  async createFromTableOrder(
+    manager: EntityManager,
+    dto: CreateSaleDto,
+    userId: number,
+    storeId: number,
+  ) {
+    return this.createSaleInTransaction(manager, dto, userId, storeId);
+  }
+
+  private async createSaleInTransaction(
+    manager: EntityManager,
+    dto: CreateSaleDto,
+    userId: number,
+    storeId: number,
+  ) {
+    const taxRate = await this.settingsService.getTaxRate(storeId);
+    const cashSession = await manager.findOne(CashSession, {
+      where: { storeId, userId, status: CashSessionStatus.OPEN },
+    });
+    if (!cashSession) {
+      throw new BadRequestException('Debes abrir la caja antes de realizar ventas');
+    }
+
+    const saleItems: SaleItem[] = [];
+    let totalWithTax = 0;
+    let profit = 0;
+
+    for (const item of dto.items) {
+      const product = await manager.findOne(Product, {
+        where: { id: item.productId, storeId },
+        relations: [
+          'baseProduct',
+          'recipe',
+          'recipe.ingredient',
+          'optionGroups',
+          'optionGroups.options',
+          'optionGroups.options.ingredient',
+        ],
       });
-      if (!cashSession) {
-        throw new BadRequestException('Debes abrir la caja antes de realizar ventas');
+      if (!product || !product.active) {
+        throw new NotFoundException(`Producto ${item.productId} no encontrado`);
       }
 
-      const saleItems: SaleItem[] = [];
-      let totalWithTax = 0;
-      let profit = 0;
+      const deductions = await planStockDeductions(
+        manager,
+        product,
+        item.quantity,
+        storeId,
+        item.selectedOptionIds,
+      );
+      const reference = `SALE-${Date.now()}-${product.id}`;
+      await applyStockDeductions(manager, deductions, storeId, userId, reference);
 
-      for (const item of dto.items) {
-        const product = await manager.findOne(Product, {
-          where: { id: item.productId, storeId },
-          relations: [
-            'baseProduct',
-            'recipe',
-            'recipe.ingredient',
-            'optionGroups',
-            'optionGroups.options',
-            'optionGroups.options.ingredient',
-          ],
-        });
-        if (!product || !product.active) {
-          throw new NotFoundException(`Producto ${item.productId} no encontrado`);
-        }
+      const unitPrice = calculateSaleUnitPrice(product, item.selectedOptionIds, item.portionScoopCount);
+      const unitCost = calculateSaleUnitCost(product, item.selectedOptionIds, item.portionScoopCount);
+      const subtotal = unitPrice * item.quantity;
+      totalWithTax += subtotal;
+      profit += (unitPrice - unitCost) * item.quantity;
 
-        const deductions = await planStockDeductions(
-          manager,
-          product,
-          item.quantity,
-          storeId,
-          item.selectedOptionIds,
-        );
-        const reference = `SALE-${Date.now()}-${product.id}`;
-        await applyStockDeductions(manager, deductions, storeId, userId, reference);
-
-        const unitPrice = calculateSaleUnitPrice(product, item.selectedOptionIds, item.portionScoopCount);
-        const unitCost = calculateSaleUnitCost(product, item.selectedOptionIds, item.portionScoopCount);
-        const subtotal = unitPrice * item.quantity;
-        totalWithTax += subtotal;
-        profit += (unitPrice - unitCost) * item.quantity;
-
-        let productName = product.name;
-        let selectedOptions: { optionIds: number[]; labels: string[] } | null = null;
-        const labels: string[] = [];
-        if (item.portionScoopCount && item.portionScoopCount > 0) {
-          labels.push(`${item.portionScoopCount} bola${item.portionScoopCount > 1 ? 's' : ''}`);
-        }
-        if (item.selectedOptionIds?.length) {
-          for (const group of product.optionGroups ?? []) {
-            for (const option of group.options ?? []) {
-              if (item.selectedOptionIds.includes(option.id)) {
-                labels.push(option.name);
-              }
+      let productName = product.name;
+      let selectedOptions: { optionIds: number[]; labels: string[] } | null = null;
+      const labels: string[] = [];
+      if (item.portionScoopCount && item.portionScoopCount > 0) {
+        labels.push(`${item.portionScoopCount} bola${item.portionScoopCount > 1 ? 's' : ''}`);
+      }
+      if (item.selectedOptionIds?.length) {
+        for (const group of product.optionGroups ?? []) {
+          for (const option of group.options ?? []) {
+            if (item.selectedOptionIds.includes(option.id)) {
+              labels.push(option.name);
             }
           }
         }
-        if (labels.length) {
-          productName = `${product.name} (${labels.join(', ')})`;
-          selectedOptions = {
-            optionIds: item.selectedOptionIds ?? [],
-            labels,
-          };
-        }
-
-        saleItems.push(
-          manager.create(SaleItem, {
-            productId: product.id,
-            productName,
-            quantity: item.quantity,
-            unitPrice,
-            unitCost,
-            subtotal,
-            selectedOptions,
-          }),
-        );
+      }
+      if (labels.length) {
+        productName = `${product.name} (${labels.join(', ')})`;
+        selectedOptions = {
+          optionIds: item.selectedOptionIds ?? [],
+          labels,
+        };
       }
 
-      const { subtotal, taxAmount, total } = calculateTaxFromIncludedPrice(totalWithTax, taxRate);
+      saleItems.push(
+        manager.create(SaleItem, {
+          productId: product.id,
+          productName,
+          quantity: item.quantity,
+          unitPrice,
+          unitCost,
+          subtotal,
+          selectedOptions,
+        }),
+      );
+    }
 
-      let amountPaid = dto.amountPaid ?? total;
-      let change = 0;
-      if (dto.paymentMethod === PaymentMethod.CASH || dto.paymentMethod === PaymentMethod.MIXED) {
-        if (amountPaid < total) {
-          throw new BadRequestException('El monto pagado es insuficiente');
-        }
-        change = Number((amountPaid - total).toFixed(2));
-      } else {
-        amountPaid = total;
+    const { subtotal, taxAmount, total } = calculateTaxFromIncludedPrice(totalWithTax, taxRate);
+
+    let amountPaid = dto.amountPaid ?? total;
+    let change = 0;
+    if (dto.paymentMethod === PaymentMethod.CASH || dto.paymentMethod === PaymentMethod.MIXED) {
+      if (amountPaid < total) {
+        throw new BadRequestException('El monto pagado es insuficiente');
       }
+      change = Number((amountPaid - total).toFixed(2));
+    } else {
+      amountPaid = total;
+    }
 
-      const sale = manager.create(Sale, {
-        storeId,
-        ticketNumber: generateTicketNumber(),
-        subtotal,
-        taxAmount,
-        total,
-        profit: Number(profit.toFixed(2)),
-        paymentMethod: dto.paymentMethod,
-        amountPaid,
-        change,
-        customerId: dto.customerId,
-        userId,
-        cashSessionId: cashSession.id,
-        items: saleItems,
-      });
-
-      return manager.save(sale);
+    const sale = manager.create(Sale, {
+      storeId,
+      ticketNumber: generateTicketNumber(),
+      subtotal,
+      taxAmount,
+      total,
+      profit: Number(profit.toFixed(2)),
+      paymentMethod: dto.paymentMethod,
+      amountPaid,
+      change,
+      customerId: dto.customerId,
+      userId,
+      cashSessionId: cashSession.id,
+      items: saleItems,
     });
+
+    return manager.save(sale);
   }
 }

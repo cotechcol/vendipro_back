@@ -16,6 +16,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { PurchasesModule } from './purchases/purchases.module';
 import { CashSessionsModule } from './cash-sessions/cash-sessions.module';
 import { SalesModule } from './sales/sales.module';
+import { TablesModule } from './tables/tables.module';
 import { ReportsModule } from './reports/reports.module';
 import { SeedModule } from './seed/seed.module';
 import { StorageModule } from './storage/storage.module';
@@ -35,6 +36,9 @@ import { PurchaseItem } from './purchases/entities/purchase-item.entity';
 import { CashSession } from './cash-sessions/entities/cash-session.entity';
 import { Sale } from './sales/entities/sale.entity';
 import { SaleItem } from './sales/entities/sale-item.entity';
+import { RestaurantTable } from './tables/entities/restaurant-table.entity';
+import { TableOrder } from './tables/entities/table-order.entity';
+import { TableOrderItem } from './tables/entities/table-order-item.entity';
 
 @Module({
   imports: [
@@ -59,6 +63,7 @@ import { SaleItem } from './sales/entities/sale-item.entity';
           Store, User, Category, Product, ProductRecipe, ProductOptionGroup, ProductOption,
           Customer, Supplier, Setting,
           InventoryMovement, Purchase, PurchaseItem, CashSession, Sale, SaleItem,
+          RestaurantTable, TableOrder, TableOrderItem,
         ],
         synchronize: false,
         timezone: 'Z',
@@ -84,6 +89,7 @@ import { SaleItem } from './sales/entities/sale-item.entity';
     PurchasesModule,
     CashSessionsModule,
     SalesModule,
+    TablesModule,
     ReportsModule,
     SeedModule,
   ],

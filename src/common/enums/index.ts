@@ -9,6 +9,11 @@ export enum CashSessionStatus {
   CLOSED = 'closed',
 }
 
+export enum TableOrderStatus {
+  OPEN = 'open',
+  CLOSED = 'closed',
+}
+
 export enum PaymentMethod {
   CASH = 'cash',
   CARD = 'card',
