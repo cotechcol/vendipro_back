@@ -71,7 +71,12 @@ import { TableOrderItem } from './tables/entities/table-order-item.entity';
         retryAttempts: onVercel ? 1 : 3,
         retryDelay: onVercel ? 500 : 2000,
         extra: {
-          connectionLimit: onVercel ? 1 : 5,
+          waitForConnections: true,
+          connectionLimit: onVercel ? 3 : 5,
+          maxIdle: onVercel ? 0 : 5,
+          idleTimeout: onVercel ? 1_000 : 60_000,
+          enableKeepAlive: true,
+          keepAliveInitialDelay: 0,
           connectTimeout: onVercel ? 5_000 : 10_000,
         },
       };

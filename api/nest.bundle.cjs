@@ -26839,7 +26839,12 @@ var require_app_module = __commonJS({
                 retryAttempts: onVercel ? 1 : 3,
                 retryDelay: onVercel ? 500 : 2e3,
                 extra: {
-                  connectionLimit: onVercel ? 1 : 5,
+                  waitForConnections: true,
+                  connectionLimit: onVercel ? 3 : 5,
+                  maxIdle: onVercel ? 0 : 5,
+                  idleTimeout: onVercel ? 1e3 : 6e4,
+                  enableKeepAlive: true,
+                  keepAliveInitialDelay: 0,
                   connectTimeout: onVercel ? 5e3 : 1e4
                 }
               };
