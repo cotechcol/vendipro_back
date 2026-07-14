@@ -41,7 +41,7 @@ export class TableOrderItem {
   @Column({ name: 'selected_option_ids', type: 'json', nullable: true })
   selectedOptionIds: number[] | null;
 
-  @Column({ name: 'option_label', length: 250, nullable: true })
+  @Column({ name: 'option_label', type: 'varchar', length: 250, nullable: true })
   optionLabel: string | null;
 
   @Column({ name: 'portion_scoop_count', type: 'int', nullable: true })

@@ -24095,7 +24095,7 @@ var require_table_order_item_entity = __commonJS({
       __metadata("design:type", Object)
     ], TableOrderItem.prototype, "selectedOptionIds", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "option_label", length: 250, nullable: true }),
+      (0, typeorm_1.Column)({ name: "option_label", type: "varchar", length: 250, nullable: true }),
       __metadata("design:type", Object)
     ], TableOrderItem.prototype, "optionLabel", void 0);
     __decorate([
@@ -24191,7 +24191,7 @@ var require_table_order_entity = __commonJS({
       __metadata("design:type", String)
     ], TableOrder.prototype, "status", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "customer_id", nullable: true }),
+      (0, typeorm_1.Column)({ name: "customer_id", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], TableOrder.prototype, "customerId", void 0);
     __decorate([
@@ -24213,7 +24213,7 @@ var require_table_order_entity = __commonJS({
       __metadata("design:type", user_entity_1.User)
     ], TableOrder.prototype, "openedByUser", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "closed_by_user_id", nullable: true }),
+      (0, typeorm_1.Column)({ name: "closed_by_user_id", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], TableOrder.prototype, "closedByUserId", void 0);
     __decorate([
@@ -24222,7 +24222,7 @@ var require_table_order_entity = __commonJS({
       __metadata("design:type", Object)
     ], TableOrder.prototype, "closedByUser", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "sale_id", nullable: true }),
+      (0, typeorm_1.Column)({ name: "sale_id", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], TableOrder.prototype, "saleId", void 0);
     __decorate([

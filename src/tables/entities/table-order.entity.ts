@@ -38,7 +38,7 @@ export class TableOrder {
   @Column({ type: 'enum', enum: TableOrderStatus, default: TableOrderStatus.OPEN })
   status: TableOrderStatus;
 
-  @Column({ name: 'customer_id', nullable: true })
+  @Column({ name: 'customer_id', type: 'int', nullable: true })
   customerId: number | null;
 
   @ManyToOne(() => Customer, { nullable: true })
@@ -55,14 +55,14 @@ export class TableOrder {
   @JoinColumn({ name: 'opened_by_user_id' })
   openedByUser: User;
 
-  @Column({ name: 'closed_by_user_id', nullable: true })
+  @Column({ name: 'closed_by_user_id', type: 'int', nullable: true })
   closedByUserId: number | null;
 
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'closed_by_user_id' })
   closedByUser: User | null;
 
-  @Column({ name: 'sale_id', nullable: true })
+  @Column({ name: 'sale_id', type: 'int', nullable: true })
   saleId: number | null;
 
   @ManyToOne(() => Sale, { nullable: true })
