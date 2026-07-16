@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
-import { AdjustInventoryDto } from './dto/inventory.dto';
+import { AdjustInventoryDto, ZeroInventoryDto } from './dto/inventory.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -39,5 +39,15 @@ export class InventoryController {
     @StoreCtx() ctx: StoreContext,
   ) {
     return this.service.adjust(dto, userId, ctx);
+  }
+
+  @Post('zero')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  zeroStock(
+    @Body() dto: ZeroInventoryDto,
+    @CurrentUser('sub') userId: number,
+    @StoreCtx() ctx: StoreContext,
+  ) {
+    return this.service.zeroStock(dto, userId, ctx);
   }
 }

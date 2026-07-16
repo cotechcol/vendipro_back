@@ -22641,6 +22641,52 @@ var require_inventory_service = __commonJS({
           return movement;
         });
       }
+      async zeroStock(dto, userId, ctx) {
+        const storeId = this.scopeStore(ctx);
+        const uniqueIds = [...new Set(dto.productIds.map(Number))];
+        if (!uniqueIds.length) {
+          throw new common_1.BadRequestException("Selecciona al menos un producto");
+        }
+        const allowedTypes = [enums_1.ProductType.SIMPLE, enums_1.ProductType.BULK, enums_1.ProductType.PREPARED];
+        return this.dataSource.transaction(async (manager) => {
+          const products = await manager.find(product_entity_1.Product, {
+            where: { id: (0, typeorm_2.In)(uniqueIds), storeId }
+          });
+          if (products.length !== uniqueIds.length) {
+            throw new common_1.NotFoundException("Uno o m\xE1s productos no pertenecen a esta tienda");
+          }
+          const invalid = products.filter((p) => !allowedTypes.includes(p.productType));
+          if (invalid.length) {
+            throw new common_1.BadRequestException(`Solo se puede poner a cero productos simple, bulk o prepared (${invalid.map((p) => p.name).join(", ")})`);
+          }
+          const reference = `ZERO-${Date.now()}`;
+          const notes = dto.notes?.trim() || "Puesta a cero de inventario";
+          let zeroed = 0;
+          let skipped = 0;
+          for (const product of products) {
+            const stockBefore = Number(product.stock);
+            if (stockBefore <= 0) {
+              skipped += 1;
+              continue;
+            }
+            product.stock = 0;
+            await manager.save(product);
+            await manager.save(manager.create(inventory_movement_entity_1.InventoryMovement, {
+              storeId,
+              productId: product.id,
+              type: enums_1.InventoryMovementType.ADJUSTMENT_OUT,
+              quantity: stockBefore,
+              stockBefore,
+              stockAfter: 0,
+              notes,
+              userId,
+              reference
+            }));
+            zeroed += 1;
+          }
+          return { zeroed, skipped, reference };
+        });
+      }
       async executeProduction(manager, product, quantityProduced, notes, userId, storeId) {
         const plan = await (0, product_stock_util_1.planProductionDeductions)(manager, product, quantityProduced, storeId);
         const reference = `PROD-${Date.now()}`;
@@ -22712,7 +22758,7 @@ var require_inventory_dto = __commonJS({
       if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.AdjustInventoryDto = void 0;
+    exports2.ZeroInventoryDto = exports2.AdjustInventoryDto = void 0;
     var class_validator_1 = require("class-validator");
     var class_transformer_1 = require("class-transformer");
     var enums_1 = require_enums();
@@ -22743,6 +22789,23 @@ var require_inventory_dto = __commonJS({
       (0, class_validator_1.IsString)(),
       __metadata("design:type", String)
     ], AdjustInventoryDto.prototype, "notes", void 0);
+    var ZeroInventoryDto = class {
+      productIds;
+      notes;
+    };
+    exports2.ZeroInventoryDto = ZeroInventoryDto;
+    __decorate([
+      (0, class_validator_1.IsArray)(),
+      (0, class_validator_1.ArrayMinSize)(1),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)({ each: true }),
+      __metadata("design:type", Array)
+    ], ZeroInventoryDto.prototype, "productIds", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsString)(),
+      __metadata("design:type", String)
+    ], ZeroInventoryDto.prototype, "notes", void 0);
   }
 });
 
@@ -22789,6 +22852,9 @@ var require_inventory_controller = __commonJS({
       adjust(dto, userId, ctx) {
         return this.service.adjust(dto, userId, ctx);
       }
+      zeroStock(dto, userId, ctx) {
+        return this.service.zeroStock(dto, userId, ctx);
+      }
     };
     exports2.InventoryController = InventoryController;
     __decorate([
@@ -22820,6 +22886,16 @@ var require_inventory_controller = __commonJS({
       __metadata("design:paramtypes", [inventory_dto_1.AdjustInventoryDto, Number, Object]),
       __metadata("design:returntype", void 0)
     ], InventoryController.prototype, "adjust", null);
+    __decorate([
+      (0, common_1.Post)("zero"),
+      (0, roles_decorator_1.Roles)(enums_1.UserRole.SUPER_ADMIN, enums_1.UserRole.ADMIN),
+      __param(0, (0, common_1.Body)()),
+      __param(1, (0, current_user_decorator_1.CurrentUser)("sub")),
+      __param(2, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [inventory_dto_1.ZeroInventoryDto, Number, Object]),
+      __metadata("design:returntype", void 0)
+    ], InventoryController.prototype, "zeroStock", null);
     exports2.InventoryController = InventoryController = __decorate([
       (0, common_1.Controller)("inventory"),
       (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),

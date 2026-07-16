@@ -1,9 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { InventoryMovement } from './entities/inventory-movement.entity';
 import { Product } from '../products/entities/product.entity';
-import { AdjustInventoryDto } from './dto/inventory.dto';
+import { AdjustInventoryDto, ZeroInventoryDto } from './dto/inventory.dto';
 import { InventoryMovementType, ProductType } from '../common/enums';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import type { StoreContext } from '../common/utils/store-context.util';
@@ -137,6 +137,64 @@ export class InventoryService {
       });
       await manager.save(movement);
       return movement;
+    });
+  }
+
+  async zeroStock(dto: ZeroInventoryDto, userId: number, ctx: StoreContext) {
+    const storeId = this.scopeStore(ctx);
+    const uniqueIds = [...new Set(dto.productIds.map(Number))];
+    if (!uniqueIds.length) {
+      throw new BadRequestException('Selecciona al menos un producto');
+    }
+
+    const allowedTypes = [ProductType.SIMPLE, ProductType.BULK, ProductType.PREPARED];
+
+    return this.dataSource.transaction(async (manager) => {
+      const products = await manager.find(Product, {
+        where: { id: In(uniqueIds), storeId },
+      });
+
+      if (products.length !== uniqueIds.length) {
+        throw new NotFoundException('Uno o más productos no pertenecen a esta tienda');
+      }
+
+      const invalid = products.filter((p) => !allowedTypes.includes(p.productType));
+      if (invalid.length) {
+        throw new BadRequestException(
+          `Solo se puede poner a cero productos simple, bulk o prepared (${invalid.map((p) => p.name).join(', ')})`,
+        );
+      }
+
+      const reference = `ZERO-${Date.now()}`;
+      const notes = dto.notes?.trim() || 'Puesta a cero de inventario';
+      let zeroed = 0;
+      let skipped = 0;
+
+      for (const product of products) {
+        const stockBefore = Number(product.stock);
+        if (stockBefore <= 0) {
+          skipped += 1;
+          continue;
+        }
+
+        product.stock = 0;
+        await manager.save(product);
+
+        await manager.save(manager.create(InventoryMovement, {
+          storeId,
+          productId: product.id,
+          type: InventoryMovementType.ADJUSTMENT_OUT,
+          quantity: stockBefore,
+          stockBefore,
+          stockAfter: 0,
+          notes,
+          userId,
+          reference,
+        }));
+        zeroed += 1;
+      }
+
+      return { zeroed, skipped, reference };
     });
   }
 
