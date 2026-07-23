@@ -45,26 +45,40 @@ export class TablesService {
 
   async list(ctx: StoreContext) {
     const storeId = this.scopeStore(ctx);
-    const [tables, openOrders] = await Promise.all([
+    const [tables, openOrders, totals] = await Promise.all([
       this.tableRepo.find({
         where: { storeId, active: true },
         order: { sortOrder: 'ASC', name: 'ASC' },
       }),
       this.orderRepo.find({
         where: { storeId, status: TableOrderStatus.OPEN },
-        relations: ['items'],
       }),
+      this.itemRepo
+        .createQueryBuilder('i')
+        .innerJoin('i.order', 'o')
+        .select('o.id', 'orderId')
+        .addSelect('COALESCE(SUM(i.quantity * i.unitPrice), 0)', 'total')
+        .addSelect('COALESCE(SUM(i.quantity), 0)', 'itemCount')
+        .where('o.storeId = :storeId', { storeId })
+        .andWhere('o.status = :status', { status: TableOrderStatus.OPEN })
+        .groupBy('o.id')
+        .getRawMany<{ orderId: string; total: string; itemCount: string }>(),
     ]);
+
+    const totalsByOrder = new Map(
+      totals.map((row) => [
+        Number(row.orderId),
+        {
+          total: Number(Number(row.total).toFixed(2)),
+          itemCount: Number(row.itemCount),
+        },
+      ]),
+    );
     const ordersByTable = new Map(openOrders.map((order) => [order.tableId, order]));
 
     return tables.map((table) => {
       const openOrder = ordersByTable.get(table.id) ?? null;
-      const items = openOrder?.items ?? [];
-      const total = items.reduce(
-        (sum, item) => sum + Number(item.unitPrice) * Number(item.quantity),
-        0,
-      );
-      const itemCount = items.reduce((sum, item) => sum + Number(item.quantity), 0);
+      const summary = openOrder ? totalsByOrder.get(openOrder.id) : null;
       return {
         ...table,
         status: openOrder ? 'occupied' : 'free',
@@ -73,8 +87,8 @@ export class TablesService {
               id: openOrder.id,
               customerId: openOrder.customerId,
               notes: openOrder.notes,
-              total: Number(total.toFixed(2)),
-              itemCount,
+              total: summary?.total ?? 0,
+              itemCount: summary?.itemCount ?? 0,
               createdAt: openOrder.createdAt,
             }
           : null,
@@ -183,7 +197,7 @@ export class TablesService {
       dto.portionScoopCount,
     );
 
-    await this.itemRepo.save(this.itemRepo.create({
+    const saved = await this.itemRepo.save(this.itemRepo.create({
       orderId: order.id,
       productId: product.id,
       productName,
@@ -195,7 +209,8 @@ export class TablesService {
       notes: dto.notes?.trim() || null,
     }));
 
-    return this.getOrder(order.id, ctx);
+    const totals = await this.getOrderTotals(order.id);
+    return { item: saved, ...totals };
   }
 
   async updateItem(
@@ -222,8 +237,9 @@ export class TablesService {
     }
     if (dto.notes !== undefined) item.notes = dto.notes.trim() || null;
 
-    await this.itemRepo.save(item);
-    return this.getOrder(orderId, ctx);
+    const saved = await this.itemRepo.save(item);
+    const totals = await this.getOrderTotals(orderId);
+    return { item: saved, ...totals };
   }
 
   async removeItem(orderId: number, itemId: number, ctx: StoreContext) {
@@ -231,7 +247,8 @@ export class TablesService {
     await this.getOpenOrder(orderId, storeId);
     const result = await this.itemRepo.delete({ id: itemId, orderId });
     if (!result.affected) throw new NotFoundException('Producto de la mesa no encontrado');
-    return this.getOrder(orderId, ctx);
+    const totals = await this.getOrderTotals(orderId);
+    return { removedItemId: itemId, ...totals };
   }
 
   async releaseEmptyOrder(orderId: number, userId: number, ctx: StoreContext) {
@@ -385,6 +402,20 @@ export class TablesService {
       ...order,
       total: Number(total.toFixed(2)),
       itemCount,
+    };
+  }
+
+  private async getOrderTotals(orderId: number) {
+    const row = await this.itemRepo
+      .createQueryBuilder('i')
+      .select('COALESCE(SUM(i.quantity * i.unitPrice), 0)', 'total')
+      .addSelect('COALESCE(SUM(i.quantity), 0)', 'itemCount')
+      .where('i.orderId = :orderId', { orderId })
+      .getRawOne<{ total: string; itemCount: string }>();
+
+    return {
+      total: Number(Number(row?.total ?? 0).toFixed(2)),
+      itemCount: Number(row?.itemCount ?? 0),
     };
   }
 }

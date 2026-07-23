@@ -3936,21 +3936,59 @@ var require_products_service = __commonJS({
       }
       async findForPos(search, categoryId, ctx) {
         const storeId = this.scopeStore(ctx);
-        const qb = this.repo.createQueryBuilder("p").leftJoinAndSelect("p.category", "category").leftJoinAndSelect("p.baseProduct", "baseProduct").leftJoinAndSelect("p.recipe", "recipe").leftJoinAndSelect("recipe.ingredient", "ingredient").leftJoinAndSelect("p.optionGroups", "optionGroups").leftJoinAndSelect("optionGroups.options", "options").leftJoinAndSelect("options.ingredient", "optionIngredient").where("p.storeId = :storeId", { storeId }).andWhere("p.active = true").andWhere("p.visibleInPos = true").andWhere("p.productType NOT IN (:...excluded)", {
+        const qb = this.repo.createQueryBuilder("p").leftJoinAndSelect("p.category", "category").leftJoinAndSelect("p.baseProduct", "baseProduct").leftJoinAndSelect("p.optionGroups", "optionGroups").leftJoinAndSelect("optionGroups.options", "options").where("p.storeId = :storeId", { storeId }).andWhere("p.active = true").andWhere("p.visibleInPos = true").andWhere("p.productType NOT IN (:...excluded)", {
           excluded: [enums_1.ProductType.BULK, enums_1.ProductType.PREPARED]
-        }).orderBy("p.name", "ASC");
+        }).orderBy("p.name", "ASC").addOrderBy("optionGroups.sortOrder", "ASC").addOrderBy("optionGroups.id", "ASC");
         if (search)
           qb.andWhere("(p.name LIKE :s OR p.sku LIKE :s)", { s: `%${search}%` });
         if (categoryId)
           qb.andWhere("p.categoryId = :categoryId", { categoryId });
         const products = await qb.getMany();
-        const result = [];
-        for (const p of products) {
+        await this.hydratePosRelations(products);
+        return Promise.all(products.map(async (p) => {
           const sellable = await (0, product_stock_util_1.getSellableUnits)(this.repo.manager, p);
-          p.sellableUnits = sellable;
-          result.push(await this.enrichProduct(p, sellable));
+          return this.enrichProduct(p, sellable);
+        }));
+      }
+      async hydratePosRelations(products) {
+        if (!products.length)
+          return;
+        const compositeIds = products.filter((p) => p.productType === enums_1.ProductType.COMPOSITE).map((p) => p.id);
+        const recipes = compositeIds.length ? await this.recipeRepo.find({
+          where: { productId: (0, typeorm_2.In)(compositeIds) },
+          relations: ["ingredient"]
+        }) : [];
+        const recipesByProduct = /* @__PURE__ */ new Map();
+        for (const line of recipes) {
+          const list = recipesByProduct.get(line.productId) ?? [];
+          list.push(line);
+          recipesByProduct.set(line.productId, list);
         }
-        return result;
+        const ingredientIds = /* @__PURE__ */ new Set();
+        for (const product of products) {
+          product.recipe = recipesByProduct.get(product.id) ?? [];
+          for (const group of product.optionGroups ?? []) {
+            for (const option of group.options ?? []) {
+              if (option.ingredientProductId)
+                ingredientIds.add(option.ingredientProductId);
+            }
+          }
+        }
+        if (!ingredientIds.size)
+          return;
+        const ingredients = await this.repo.find({
+          where: { id: (0, typeorm_2.In)([...ingredientIds]) }
+        });
+        const ingredientMap = new Map(ingredients.map((i) => [i.id, i]));
+        for (const product of products) {
+          for (const group of product.optionGroups ?? []) {
+            for (const option of group.options ?? []) {
+              if (option.ingredientProductId) {
+                option.ingredient = ingredientMap.get(option.ingredientProductId) ?? null;
+              }
+            }
+          }
+        }
       }
       async findLowStock(ctx) {
         const storeId = this.scopeStore(ctx);
@@ -24631,22 +24669,27 @@ var require_tables_service = __commonJS({
       }
       async list(ctx) {
         const storeId = this.scopeStore(ctx);
-        const [tables, openOrders] = await Promise.all([
+        const [tables, openOrders, totals] = await Promise.all([
           this.tableRepo.find({
             where: { storeId, active: true },
             order: { sortOrder: "ASC", name: "ASC" }
           }),
           this.orderRepo.find({
-            where: { storeId, status: enums_1.TableOrderStatus.OPEN },
-            relations: ["items"]
-          })
+            where: { storeId, status: enums_1.TableOrderStatus.OPEN }
+          }),
+          this.itemRepo.createQueryBuilder("i").innerJoin("i.order", "o").select("o.id", "orderId").addSelect("COALESCE(SUM(i.quantity * i.unitPrice), 0)", "total").addSelect("COALESCE(SUM(i.quantity), 0)", "itemCount").where("o.storeId = :storeId", { storeId }).andWhere("o.status = :status", { status: enums_1.TableOrderStatus.OPEN }).groupBy("o.id").getRawMany()
         ]);
+        const totalsByOrder = new Map(totals.map((row) => [
+          Number(row.orderId),
+          {
+            total: Number(Number(row.total).toFixed(2)),
+            itemCount: Number(row.itemCount)
+          }
+        ]));
         const ordersByTable = new Map(openOrders.map((order) => [order.tableId, order]));
         return tables.map((table) => {
           const openOrder = ordersByTable.get(table.id) ?? null;
-          const items = openOrder?.items ?? [];
-          const total = items.reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.quantity), 0);
-          const itemCount = items.reduce((sum, item) => sum + Number(item.quantity), 0);
+          const summary = openOrder ? totalsByOrder.get(openOrder.id) : null;
           return {
             ...table,
             status: openOrder ? "occupied" : "free",
@@ -24654,8 +24697,8 @@ var require_tables_service = __commonJS({
               id: openOrder.id,
               customerId: openOrder.customerId,
               notes: openOrder.notes,
-              total: Number(total.toFixed(2)),
-              itemCount,
+              total: summary?.total ?? 0,
+              itemCount: summary?.itemCount ?? 0,
               createdAt: openOrder.createdAt
             } : null
           };
@@ -24745,7 +24788,7 @@ var require_tables_service = __commonJS({
         const optionLabel = dto.optionLabel?.trim() || this.buildOptionLabel(product, dto.selectedOptionIds, dto.portionScoopCount);
         const productName = optionLabel ? `${product.name} (${optionLabel})` : product.name;
         const unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, dto.selectedOptionIds, dto.portionScoopCount);
-        await this.itemRepo.save(this.itemRepo.create({
+        const saved = await this.itemRepo.save(this.itemRepo.create({
           orderId: order.id,
           productId: product.id,
           productName,
@@ -24756,7 +24799,8 @@ var require_tables_service = __commonJS({
           portionScoopCount: dto.portionScoopCount ?? null,
           notes: dto.notes?.trim() || null
         }));
-        return this.getOrder(order.id, ctx);
+        const totals = await this.getOrderTotals(order.id);
+        return { item: saved, ...totals };
       }
       async updateItem(orderId, itemId, dto, ctx) {
         const storeId = this.scopeStore(ctx);
@@ -24771,8 +24815,9 @@ var require_tables_service = __commonJS({
         }
         if (dto.notes !== void 0)
           item.notes = dto.notes.trim() || null;
-        await this.itemRepo.save(item);
-        return this.getOrder(orderId, ctx);
+        const saved = await this.itemRepo.save(item);
+        const totals = await this.getOrderTotals(orderId);
+        return { item: saved, ...totals };
       }
       async removeItem(orderId, itemId, ctx) {
         const storeId = this.scopeStore(ctx);
@@ -24780,7 +24825,8 @@ var require_tables_service = __commonJS({
         const result = await this.itemRepo.delete({ id: itemId, orderId });
         if (!result.affected)
           throw new common_1.NotFoundException("Producto de la mesa no encontrado");
-        return this.getOrder(orderId, ctx);
+        const totals = await this.getOrderTotals(orderId);
+        return { removedItemId: itemId, ...totals };
       }
       async releaseEmptyOrder(orderId, userId, ctx) {
         const storeId = this.scopeStore(ctx);
@@ -24913,6 +24959,13 @@ var require_tables_service = __commonJS({
           ...order,
           total: Number(total.toFixed(2)),
           itemCount
+        };
+      }
+      async getOrderTotals(orderId) {
+        const row = await this.itemRepo.createQueryBuilder("i").select("COALESCE(SUM(i.quantity * i.unitPrice), 0)", "total").addSelect("COALESCE(SUM(i.quantity), 0)", "itemCount").where("i.orderId = :orderId", { orderId }).getRawOne();
+        return {
+          total: Number(Number(row?.total ?? 0).toFixed(2)),
+          itemCount: Number(row?.itemCount ?? 0)
         };
       }
     };

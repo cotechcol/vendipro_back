@@ -19,6 +19,19 @@ async function tableExists(connection: mysql.Connection, table: string): Promise
   return rows.length > 0;
 }
 
+async function indexExists(
+  connection: mysql.Connection,
+  table: string,
+  indexName: string,
+): Promise<boolean> {
+  const [rows] = await connection.query<mysql.RowDataPacket[]>(
+    `SELECT 1 FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+    [table, indexName],
+  );
+  return rows.length > 0;
+}
+
 export async function runTableMigration(): Promise<void> {
   const connection = await createConnection();
 
@@ -83,6 +96,12 @@ export async function runTableMigration(): Promise<void> {
         ) ENGINE=InnoDB
       `);
       console.log('[table-migration] Tabla table_orders creada');
+    } else if (!(await indexExists(connection, 'table_orders', 'IDX_table_orders_store_status'))) {
+      await connection.query(`
+        ALTER TABLE table_orders
+        ADD KEY IDX_table_orders_store_status (store_id, status)
+      `);
+      console.log('[table-migration] Índice IDX_table_orders_store_status agregado');
     }
 
     if (!(await tableExists(connection, 'table_order_items'))) {

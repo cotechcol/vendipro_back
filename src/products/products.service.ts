@@ -108,30 +108,79 @@ export class ProductsService {
     const qb = this.repo.createQueryBuilder('p')
       .leftJoinAndSelect('p.category', 'category')
       .leftJoinAndSelect('p.baseProduct', 'baseProduct')
-      .leftJoinAndSelect('p.recipe', 'recipe')
-      .leftJoinAndSelect('recipe.ingredient', 'ingredient')
       .leftJoinAndSelect('p.optionGroups', 'optionGroups')
       .leftJoinAndSelect('optionGroups.options', 'options')
-      .leftJoinAndSelect('options.ingredient', 'optionIngredient')
       .where('p.storeId = :storeId', { storeId })
       .andWhere('p.active = true')
       .andWhere('p.visibleInPos = true')
       .andWhere('p.productType NOT IN (:...excluded)', {
         excluded: [ProductType.BULK, ProductType.PREPARED],
       })
-      .orderBy('p.name', 'ASC');
+      .orderBy('p.name', 'ASC')
+      .addOrderBy('optionGroups.sortOrder', 'ASC')
+      .addOrderBy('optionGroups.id', 'ASC');
 
     if (search) qb.andWhere('(p.name LIKE :s OR p.sku LIKE :s)', { s: `%${search}%` });
     if (categoryId) qb.andWhere('p.categoryId = :categoryId', { categoryId });
 
     const products = await qb.getMany();
-    const result = [];
-    for (const p of products) {
-      const sellable = await getSellableUnits(this.repo.manager, p);
-      (p as Product & { sellableUnits: number }).sellableUnits = sellable;
-      result.push(await this.enrichProduct(p, sellable));
+    await this.hydratePosRelations(products);
+
+    return Promise.all(
+      products.map(async (p) => {
+        const sellable = await getSellableUnits(this.repo.manager, p);
+        return this.enrichProduct(p, sellable);
+      }),
+    );
+  }
+
+  /** Precarga recetas e insumos de opciones en pocas queries (evita N+1 en el catálogo POS). */
+  private async hydratePosRelations(products: Product[]) {
+    if (!products.length) return;
+
+    const compositeIds = products
+      .filter((p) => p.productType === ProductType.COMPOSITE)
+      .map((p) => p.id);
+
+    const recipes = compositeIds.length
+      ? await this.recipeRepo.find({
+          where: { productId: In(compositeIds) },
+          relations: ['ingredient'],
+        })
+      : [];
+    const recipesByProduct = new Map<number, ProductRecipe[]>();
+    for (const line of recipes) {
+      const list = recipesByProduct.get(line.productId) ?? [];
+      list.push(line);
+      recipesByProduct.set(line.productId, list);
     }
-    return result;
+
+    const ingredientIds = new Set<number>();
+    for (const product of products) {
+      product.recipe = recipesByProduct.get(product.id) ?? [];
+      for (const group of product.optionGroups ?? []) {
+        for (const option of group.options ?? []) {
+          if (option.ingredientProductId) ingredientIds.add(option.ingredientProductId);
+        }
+      }
+    }
+
+    if (!ingredientIds.size) return;
+
+    const ingredients = await this.repo.find({
+      where: { id: In([...ingredientIds]) },
+    });
+    const ingredientMap = new Map(ingredients.map((i) => [i.id, i]));
+
+    for (const product of products) {
+      for (const group of product.optionGroups ?? []) {
+        for (const option of group.options ?? []) {
+          if (option.ingredientProductId) {
+            option.ingredient = ingredientMap.get(option.ingredientProductId) ?? null;
+          }
+        }
+      }
+    }
   }
 
   async findLowStock(ctx: StoreContext) {
