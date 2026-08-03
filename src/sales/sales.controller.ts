@@ -2,7 +2,7 @@ import {
   Controller, Get, Post, Body, Param, Query, UseGuards, ParseIntPipe,
 } from '@nestjs/common';
 import { SalesService } from './sales.service';
-import { CreateSaleDto } from './dto/sale.dto';
+import { CreateSaleDto, ReverseSaleDto } from './dto/sale.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -40,5 +40,17 @@ export class SalesController {
     @StoreCtx() ctx: StoreContext,
   ) {
     return this.service.create(dto, userId, ctx);
+  }
+
+  /** Solo admin de tienda (y super admin). */
+  @Post(':id/reverse')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  reverse(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReverseSaleDto,
+    @CurrentUser('sub') userId: number,
+    @StoreCtx() ctx: StoreContext,
+  ) {
+    return this.service.reverse(id, dto, userId, ctx);
   }
 }

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { PaymentMethod, TableOrderStatus } from '../common/enums';
+import { PaymentMethod, ProductType, TableOrderStatus } from '../common/enums';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
 import { Product } from '../products/entities/product.entity';
@@ -178,24 +178,71 @@ export class TablesService {
     const storeId = this.scopeStore(ctx);
     const order = await this.getOpenOrder(orderId, storeId);
     const quantity = dto.quantity ?? 1;
-    const product = await this.loadProduct(dto.productId, storeId);
 
-    await planStockDeductions(
-      this.dataSource.manager,
-      product,
-      quantity,
-      storeId,
-      dto.selectedOptionIds,
-    );
-
-    const optionLabel = dto.optionLabel?.trim()
-      || this.buildOptionLabel(product, dto.selectedOptionIds, dto.portionScoopCount);
-    const productName = optionLabel ? `${product.name} (${optionLabel})` : product.name;
-    const unitPrice = calculateSaleUnitPrice(
-      product,
+    const match = await this.findMatchingItem(
+      order.id,
+      dto.productId,
       dto.selectedOptionIds,
       dto.portionScoopCount,
     );
+    if (match) {
+      const newQty = Number(match.quantity) + quantity;
+      await this.assertQuantityAvailable(
+        dto.productId,
+        storeId,
+        newQty,
+        match.selectedOptionIds,
+      );
+      match.quantity = newQty;
+      const saved = await this.itemRepo.save(match);
+      const totals = await this.getOrderTotals(order.id);
+      return { item: saved, ...totals };
+    }
+
+    const needsOptions = !!(dto.selectedOptionIds?.length || dto.portionScoopCount);
+    let product: Product;
+    let unitPrice: number;
+    let productName: string;
+    let optionLabel: string | null = null;
+
+    if (!needsOptions) {
+      const lean = await this.loadProductLean(dto.productId, storeId);
+      if (lean.productType === ProductType.SIMPLE) {
+        await this.assertQuantityAvailable(lean.id, storeId, quantity, null);
+        product = lean;
+        unitPrice = Number(lean.salePrice);
+        productName = lean.name;
+      } else {
+        product = await this.loadProduct(dto.productId, storeId);
+        await planStockDeductions(
+          this.dataSource.manager,
+          product,
+          quantity,
+          storeId,
+          dto.selectedOptionIds,
+        );
+        unitPrice = calculateSaleUnitPrice(product, dto.selectedOptionIds, dto.portionScoopCount);
+        productName = product.name;
+      }
+    } else {
+      product = await this.loadProduct(dto.productId, storeId);
+      await planStockDeductions(
+        this.dataSource.manager,
+        product,
+        quantity,
+        storeId,
+        dto.selectedOptionIds,
+      );
+      optionLabel = dto.optionLabel?.trim()
+        || this.buildOptionLabel(product, dto.selectedOptionIds, dto.portionScoopCount)
+        || null;
+      productName = optionLabel ? `${product.name} (${optionLabel})` : product.name;
+      unitPrice = calculateSaleUnitPrice(
+        product,
+        dto.selectedOptionIds,
+        dto.portionScoopCount,
+      );
+    }
 
     const saved = await this.itemRepo.save(this.itemRepo.create({
       orderId: order.id,
@@ -204,7 +251,7 @@ export class TablesService {
       quantity,
       unitPrice,
       selectedOptionIds: dto.selectedOptionIds?.length ? dto.selectedOptionIds : null,
-      optionLabel: optionLabel || null,
+      optionLabel,
       portionScoopCount: dto.portionScoopCount ?? null,
       notes: dto.notes?.trim() || null,
     }));
@@ -220,18 +267,29 @@ export class TablesService {
     ctx: StoreContext,
   ) {
     const storeId = this.scopeStore(ctx);
-    await this.getOpenOrder(orderId, storeId);
-    const item = await this.itemRepo.findOne({ where: { id: itemId, orderId } });
+    const [order, item] = await Promise.all([
+      this.orderRepo.findOne({
+        where: { id: orderId },
+        select: ['id', 'storeId', 'status'],
+      }),
+      this.itemRepo.findOne({ where: { id: itemId, orderId } }),
+    ]);
+
+    if (!order) throw new NotFoundException('Orden de mesa no encontrada');
+    if (order.storeId !== storeId) {
+      throw new ForbiddenException('La orden no pertenece a esta tienda');
+    }
+    if (order.status !== TableOrderStatus.OPEN) {
+      throw new BadRequestException('La orden ya está cerrada');
+    }
     if (!item) throw new NotFoundException('Producto de la mesa no encontrado');
 
     if (dto.quantity !== undefined) {
-      const product = await this.loadProduct(item.productId, storeId);
-      await planStockDeductions(
-        this.dataSource.manager,
-        product,
-        dto.quantity,
+      await this.assertQuantityAvailable(
+        item.productId,
         storeId,
-        item.selectedOptionIds ?? undefined,
+        dto.quantity,
+        item.selectedOptionIds,
       );
       item.quantity = dto.quantity;
     }
@@ -344,7 +402,10 @@ export class TablesService {
   }
 
   private async getOpenOrder(orderId: number, storeId: number) {
-    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      select: ['id', 'storeId', 'status', 'tableId'],
+    });
     if (!order) throw new NotFoundException('Orden de mesa no encontrada');
     if (order.storeId !== storeId) {
       throw new ForbiddenException('La orden no pertenece a esta tienda');
@@ -353,6 +414,79 @@ export class TablesService {
       throw new BadRequestException('La orden ya está cerrada');
     }
     return order;
+  }
+
+  private sameOptionIds(a?: number[] | null, b?: number[] | null): boolean {
+    const left = [...(a ?? [])].sort((x, y) => x - y);
+    const right = [...(b ?? [])].sort((x, y) => x - y);
+    if (left.length !== right.length) return false;
+    return left.every((v, i) => v === right[i]);
+  }
+
+  private async findMatchingItem(
+    orderId: number,
+    productId: number,
+    selectedOptionIds?: number[],
+    portionScoopCount?: number,
+  ) {
+    const items = await this.itemRepo.find({ where: { orderId, productId } });
+    return items.find((item) => (
+      this.sameOptionIds(item.selectedOptionIds, selectedOptionIds)
+      && (item.portionScoopCount ?? null) === (portionScoopCount ?? null)
+    )) ?? null;
+  }
+
+  /** Stock liviano para simples; grafo completo solo si hace falta. */
+  private async assertQuantityAvailable(
+    productId: number,
+    storeId: number,
+    quantity: number,
+    selectedOptionIds?: number[] | null,
+  ) {
+    if (quantity <= 0) {
+      throw new BadRequestException('Cantidad inválida');
+    }
+
+    const lean = await this.loadProductLean(productId, storeId);
+    const needsFullPlan = lean.productType !== ProductType.SIMPLE
+      || (selectedOptionIds?.length ?? 0) > 0;
+
+    if (!needsFullPlan) {
+      if (Number(lean.stock) < quantity) {
+        throw new BadRequestException(`Stock insuficiente para ${lean.name}`);
+      }
+      return;
+    }
+
+    const product = await this.loadProduct(productId, storeId);
+    await planStockDeductions(
+      this.dataSource.manager,
+      product,
+      quantity,
+      storeId,
+      selectedOptionIds ?? undefined,
+    );
+  }
+
+  private async loadProductLean(productId: number, storeId: number) {
+    const product = await this.dataSource.manager.findOne(Product, {
+      where: { id: productId, storeId },
+      select: [
+        'id',
+        'name',
+        'active',
+        'productType',
+        'stock',
+        'salePrice',
+        'costPrice',
+        'scoopCount',
+        'variableScoops',
+      ],
+    });
+    if (!product || !product.active) {
+      throw new NotFoundException(`Producto ${productId} no encontrado`);
+    }
+    return product;
   }
 
   private async loadProduct(productId: number, storeId: number) {

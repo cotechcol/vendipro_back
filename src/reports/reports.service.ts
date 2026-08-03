@@ -4,7 +4,7 @@ import { Repository, Between } from 'typeorm';
 import { Sale } from '../sales/entities/sale.entity';
 import { SaleItem } from '../sales/entities/sale-item.entity';
 import { Product } from '../products/entities/product.entity';
-import { ProductType } from '../common/enums';
+import { ProductType, SaleStatus } from '../common/enums';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { reportStoreId } from '../common/utils/store-context.util';
 import {
@@ -26,7 +26,8 @@ export class ReportsService {
     const storeId = reportStoreId(ctx);
 
     const qb = this.saleRepo.createQueryBuilder('s')
-      .where('s.createdAt BETWEEN :start AND :end', { start, end });
+      .where('s.createdAt BETWEEN :start AND :end', { start, end })
+      .andWhere('s.status = :status', { status: SaleStatus.COMPLETED });
     if (storeId) qb.andWhere('s.storeId = :storeId', { storeId });
     const salesToday = await qb.getMany();
 
@@ -39,7 +40,8 @@ export class ReportsService {
       .select('si.productName', 'name')
       .addSelect('SUM(si.quantity)', 'quantity')
       .addSelect('SUM(si.subtotal)', 'revenue')
-      .where('s.createdAt BETWEEN :start AND :end', { start, end });
+      .where('s.createdAt BETWEEN :start AND :end', { start, end })
+      .andWhere('s.status = :status', { status: SaleStatus.COMPLETED });
     if (storeId) topQb.andWhere('s.storeId = :storeId', { storeId });
     const topProducts = await topQb
       .groupBy('si.productName')
@@ -79,11 +81,12 @@ export class ReportsService {
       order: { createdAt: 'DESC' },
     });
 
+    const active = sales.filter((s) => s.status !== SaleStatus.REVERSED);
     const summary = {
-      count: sales.length,
-      revenue: sales.reduce((s, v) => s + Number(v.total), 0),
-      profit: sales.reduce((s, v) => s + Number(v.profit), 0),
-      tax: sales.reduce((s, v) => s + Number(v.taxAmount), 0),
+      count: active.length,
+      revenue: active.reduce((s, v) => s + Number(v.total), 0),
+      profit: active.reduce((s, v) => s + Number(v.profit), 0),
+      tax: active.reduce((s, v) => s + Number(v.taxAmount), 0),
     };
 
     return { sales, summary };
@@ -133,6 +136,7 @@ export class ReportsService {
     const { start, end } = dateRangeColombia(from, to);
     const where: Record<string, unknown> = {
       createdAt: Between(start, end),
+      status: SaleStatus.COMPLETED,
     };
     if (storeId) where.storeId = storeId;
 
@@ -165,7 +169,8 @@ export class ReportsService {
       .addSelect('SUM(si.quantity)', 'quantity')
       .addSelect('SUM(si.subtotal)', 'revenue')
       .addSelect('SUM(si.quantity * si.unitCost)', 'cost')
-      .where('s.createdAt BETWEEN :start AND :end', { start, end });
+      .where('s.createdAt BETWEEN :start AND :end', { start, end })
+      .andWhere('s.status = :status', { status: SaleStatus.COMPLETED });
     if (storeId) qb.andWhere('s.storeId = :storeId', { storeId });
 
     const products = await qb
@@ -206,6 +211,7 @@ export class ReportsService {
     const { start, end } = dateRangeColombia(from, to);
     const where: Record<string, unknown> = {
       createdAt: Between(start, end),
+      status: SaleStatus.COMPLETED,
     };
     if (storeId) where.storeId = storeId;
 

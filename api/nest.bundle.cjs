@@ -29,7 +29,7 @@ var require_enums = __commonJS({
   "dist/common/enums/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.OptionGroupKind = exports2.StockUnit = exports2.ProductType = exports2.InventoryMovementType = exports2.PaymentMethod = exports2.TableOrderStatus = exports2.CashSessionStatus = exports2.UserRole = void 0;
+    exports2.OptionGroupKind = exports2.StockUnit = exports2.ProductType = exports2.InventoryMovementType = exports2.SaleStatus = exports2.PaymentMethod = exports2.TableOrderStatus = exports2.CashSessionStatus = exports2.UserRole = void 0;
     var UserRole;
     (function(UserRole2) {
       UserRole2["SUPER_ADMIN"] = "super_admin";
@@ -52,6 +52,11 @@ var require_enums = __commonJS({
       PaymentMethod2["CARD"] = "card";
       PaymentMethod2["MIXED"] = "mixed";
     })(PaymentMethod || (exports2.PaymentMethod = PaymentMethod = {}));
+    var SaleStatus;
+    (function(SaleStatus2) {
+      SaleStatus2["COMPLETED"] = "completed";
+      SaleStatus2["REVERSED"] = "reversed";
+    })(SaleStatus || (exports2.SaleStatus = SaleStatus = {}));
     var InventoryMovementType;
     (function(InventoryMovementType2) {
       InventoryMovementType2["SALE"] = "sale";
@@ -59,6 +64,7 @@ var require_enums = __commonJS({
       InventoryMovementType2["ADJUSTMENT_IN"] = "adjustment_in";
       InventoryMovementType2["ADJUSTMENT_OUT"] = "adjustment_out";
       InventoryMovementType2["PRODUCTION"] = "production";
+      InventoryMovementType2["SALE_REVERSAL"] = "sale_reversal";
     })(InventoryMovementType || (exports2.InventoryMovementType = InventoryMovementType = {}));
     var ProductType;
     (function(ProductType2) {
@@ -1186,6 +1192,7 @@ var require_sale_item_entity = __commonJS({
       unitCost;
       subtotal;
       selectedOptions;
+      portionScoopCount;
     };
     exports2.SaleItem = SaleItem;
     __decorate([
@@ -1234,6 +1241,10 @@ var require_sale_item_entity = __commonJS({
       (0, typeorm_1.Column)({ name: "selected_options", type: "json", nullable: true }),
       __metadata("design:type", Object)
     ], SaleItem.prototype, "selectedOptions", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "portion_scoop_count", type: "int", nullable: true }),
+      __metadata("design:type", Object)
+    ], SaleItem.prototype, "portionScoopCount", void 0);
     exports2.SaleItem = SaleItem = __decorate([
       (0, typeorm_1.Entity)("sale_items")
     ], SaleItem);
@@ -1272,6 +1283,7 @@ var require_sale_entity = __commonJS({
       total;
       profit;
       paymentMethod;
+      status;
       amountPaid;
       change;
       customerId;
@@ -1280,6 +1292,10 @@ var require_sale_entity = __commonJS({
       user;
       cashSessionId;
       cashSession;
+      reversedAt;
+      reversedByUserId;
+      reversedByUser;
+      reverseReason;
       items;
       createdAt;
     };
@@ -1322,6 +1338,14 @@ var require_sale_entity = __commonJS({
       __metadata("design:type", String)
     ], Sale.prototype, "paymentMethod", void 0);
     __decorate([
+      (0, typeorm_1.Column)({
+        type: "enum",
+        enum: enums_1.SaleStatus,
+        default: enums_1.SaleStatus.COMPLETED
+      }),
+      __metadata("design:type", String)
+    ], Sale.prototype, "status", void 0);
+    __decorate([
       (0, typeorm_1.Column)({ name: "amount_paid", type: "decimal", precision: 12, scale: 2, nullable: true }),
       __metadata("design:type", Number)
     ], Sale.prototype, "amountPaid", void 0);
@@ -1330,7 +1354,7 @@ var require_sale_entity = __commonJS({
       __metadata("design:type", Number)
     ], Sale.prototype, "change", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "customer_id", nullable: true }),
+      (0, typeorm_1.Column)({ name: "customer_id", type: "int", nullable: true }),
       __metadata("design:type", Number)
     ], Sale.prototype, "customerId", void 0);
     __decorate([
@@ -1356,6 +1380,23 @@ var require_sale_entity = __commonJS({
       (0, typeorm_1.JoinColumn)({ name: "cash_session_id" }),
       __metadata("design:type", cash_session_entity_1.CashSession)
     ], Sale.prototype, "cashSession", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "reversed_at", type: "datetime", nullable: true }),
+      __metadata("design:type", Object)
+    ], Sale.prototype, "reversedAt", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "reversed_by_user_id", type: "int", nullable: true }),
+      __metadata("design:type", Object)
+    ], Sale.prototype, "reversedByUserId", void 0);
+    __decorate([
+      (0, typeorm_1.ManyToOne)(() => user_entity_1.User, { nullable: true }),
+      (0, typeorm_1.JoinColumn)({ name: "reversed_by_user_id" }),
+      __metadata("design:type", Object)
+    ], Sale.prototype, "reversedByUser", void 0);
+    __decorate([
+      (0, typeorm_1.Column)({ name: "reverse_reason", type: "varchar", length: 500, nullable: true }),
+      __metadata("design:type", Object)
+    ], Sale.prototype, "reverseReason", void 0);
     __decorate([
       (0, typeorm_1.OneToMany)(() => sale_item_entity_1.SaleItem, (item) => item.sale, { cascade: true }),
       __metadata("design:type", Array)
@@ -3200,6 +3241,7 @@ var require_product_stock_util = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.planStockDeductions = planStockDeductions;
     exports2.applyStockDeductions = applyStockDeductions;
+    exports2.applyStockRestorations = applyStockRestorations;
     exports2.getSellableUnits = getSellableUnits;
     exports2.isLowStock = isLowStock;
     exports2.computeProductionDeductions = computeProductionDeductions;
@@ -3243,7 +3285,7 @@ var require_product_stock_util = __commonJS({
         quantity: saleQty
       }];
     }
-    async function planPortionWithOptions(manager, product, saleQty, storeId, selectedOptionIds) {
+    async function planPortionWithOptions(manager, product, saleQty, storeId, selectedOptionIds, validateStock = true) {
       const groups = product.optionGroups?.length ? product.optionGroups : await loadOptionGroups(manager, product.id);
       if (groups.length === 0) {
         throw new common_1.BadRequestException(`${product.name} no tiene opciones configuradas`);
@@ -3290,15 +3332,17 @@ var require_product_stock_util = __commonJS({
       }
       const deductions = [];
       for (const [productId, entry] of totals) {
-        const ingredient = await manager.findOne(product_entity_1.Product, { where: { id: productId, storeId } });
-        if (!ingredient || num(ingredient.stock) < entry.quantity) {
-          throw new common_1.BadRequestException(`Stock insuficiente de ${entry.name} (requiere ${entry.quantity} ${ingredient?.stockUnit ?? ""})`);
+        if (validateStock) {
+          const ingredient = await manager.findOne(product_entity_1.Product, { where: { id: productId, storeId } });
+          if (!ingredient || num(ingredient.stock) < entry.quantity) {
+            throw new common_1.BadRequestException(`Stock insuficiente de ${entry.name} (requiere ${entry.quantity} ${ingredient?.stockUnit ?? ""})`);
+          }
         }
         deductions.push({ productId, productName: entry.name, quantity: entry.quantity });
       }
       return deductions;
     }
-    async function planStockDeductions(manager, product, saleQty, storeId, selectedOptionIds) {
+    async function planStockDeductions(manager, product, saleQty, storeId, selectedOptionIds, validateStock = true) {
       if (saleQty <= 0) {
         throw new common_1.BadRequestException("Cantidad inv\xE1lida");
       }
@@ -3307,7 +3351,7 @@ var require_product_stock_util = __commonJS({
           const groups = product.optionGroups?.length ? product.optionGroups : await loadOptionGroups(manager, product.id);
           const hasAddons = groups.some((g) => g.kind === enums_1.OptionGroupKind.ADDON);
           if (hasAddons) {
-            if (num(product.stock) < saleQty) {
+            if (validateStock && num(product.stock) < saleQty) {
               throw new common_1.BadRequestException(`Stock insuficiente para ${product.name}`);
             }
             const deductions = [{
@@ -3325,18 +3369,20 @@ var require_product_stock_util = __commonJS({
                   deductions.push(addon);
                 }
               }
-              for (const d of deductions) {
-                if (d.productId === product.id)
-                  continue;
-                const ingredient = await manager.findOne(product_entity_1.Product, { where: { id: d.productId, storeId } });
-                if (!ingredient || num(ingredient.stock) < d.quantity) {
-                  throw new common_1.BadRequestException(`Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ""})`);
+              if (validateStock) {
+                for (const d of deductions) {
+                  if (d.productId === product.id)
+                    continue;
+                  const ingredient = await manager.findOne(product_entity_1.Product, { where: { id: d.productId, storeId } });
+                  if (!ingredient || num(ingredient.stock) < d.quantity) {
+                    throw new common_1.BadRequestException(`Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ""})`);
+                  }
                 }
               }
             }
             return deductions;
           }
-          if (num(product.stock) < saleQty) {
+          if (validateStock && num(product.stock) < saleQty) {
             throw new common_1.BadRequestException(`Stock insuficiente para ${product.name}`);
           }
           return [{ productId: product.id, productName: product.name, quantity: saleQty }];
@@ -3351,7 +3397,7 @@ var require_product_stock_util = __commonJS({
             if (!selectedOptionIds?.length) {
               throw new common_1.BadRequestException(`Selecciona envase para ${product.name}`);
             }
-            return planPortionWithOptions(manager, product, saleQty, storeId, selectedOptionIds);
+            return planPortionWithOptions(manager, product, saleQty, storeId, selectedOptionIds, validateStock);
           }
           if (!product.baseProductId || !product.portionSize) {
             throw new common_1.BadRequestException(`${product.name} no tiene insumo base configurado`);
@@ -3363,7 +3409,7 @@ var require_product_stock_util = __commonJS({
             throw new common_1.BadRequestException(`Insumo base de ${product.name} no encontrado`);
           }
           const deduct = num(product.portionSize) * saleQty;
-          if (num(base.stock) < deduct) {
+          if (validateStock && num(base.stock) < deduct) {
             throw new common_1.BadRequestException(`Stock insuficiente de ${base.name} (requiere ${deduct} ${base.stockUnit})`);
           }
           return [{ productId: base.id, productName: base.name, quantity: deduct }];
@@ -3383,7 +3429,7 @@ var require_product_stock_util = __commonJS({
               throw new common_1.BadRequestException(`Ingrediente no encontrado en receta de ${product.name}`);
             }
             const deduct = num(line.quantity) * saleQty;
-            if (num(ingredient.stock) < deduct) {
+            if (validateStock && num(ingredient.stock) < deduct) {
               throw new common_1.BadRequestException(`Stock insuficiente de ${ingredient.name} (requiere ${deduct} ${ingredient.stockUnit})`);
             }
             deductions.push({
@@ -3402,10 +3448,12 @@ var require_product_stock_util = __commonJS({
                 deductions.push(addon);
               }
             }
-            for (const d of deductions) {
-              const ingredient = await manager.findOne(product_entity_1.Product, { where: { id: d.productId, storeId } });
-              if (!ingredient || num(ingredient.stock) < d.quantity) {
-                throw new common_1.BadRequestException(`Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ""})`);
+            if (validateStock) {
+              for (const d of deductions) {
+                const ingredient = await manager.findOne(product_entity_1.Product, { where: { id: d.productId, storeId } });
+                if (!ingredient || num(ingredient.stock) < d.quantity) {
+                  throw new common_1.BadRequestException(`Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ""})`);
+                }
               }
             }
           }
@@ -3432,6 +3480,28 @@ var require_product_stock_util = __commonJS({
           stockBefore,
           stockAfter,
           reference,
+          userId
+        }));
+      }
+    }
+    async function applyStockRestorations(manager, deductions, storeId, userId, reference, notes) {
+      for (const d of deductions) {
+        const product = await manager.findOne(product_entity_1.Product, { where: { id: d.productId, storeId } });
+        if (!product)
+          continue;
+        const stockBefore = num(product.stock);
+        const stockAfter = Number((stockBefore + d.quantity).toFixed(3));
+        product.stock = stockAfter;
+        await manager.save(product);
+        await manager.save(manager.create(inventory_movement_entity_1.InventoryMovement, {
+          storeId,
+          productId: product.id,
+          type: enums_1.InventoryMovementType.SALE_REVERSAL,
+          quantity: d.quantity,
+          stockBefore,
+          stockAfter,
+          reference,
+          notes: notes || void 0,
           userId
         }));
       }
@@ -23053,11 +23123,11 @@ var require_purchases_service = __commonJS({
             const product = await manager.findOne(product_entity_1.Product, { where: { id: item.productId, storeId } });
             if (!product)
               throw new common_1.NotFoundException(`Producto ${item.productId} no encontrado`);
+            if (!product.active) {
+              throw new common_1.BadRequestException(`${product.name} est\xE1 inactivo`);
+            }
             const subtotal = item.quantity * item.unitCost;
             total += subtotal;
-            if (![enums_1.ProductType.SIMPLE, enums_1.ProductType.BULK].includes(product.productType)) {
-              throw new common_1.BadRequestException(`${product.name} no recibe compras directas`);
-            }
             const qty = Number(item.quantity);
             const stockBefore = Number(product.stock);
             const stockAfter = Number((stockBefore + qty).toFixed(3));
@@ -23461,7 +23531,8 @@ var require_cash_sessions_service = __commonJS({
         return { session, summary, sales };
       }
       async getSessionSummary(sessionId) {
-        const sales = await this.saleRepo.find({ where: { cashSessionId: sessionId } });
+        const allSales = await this.saleRepo.find({ where: { cashSessionId: sessionId } });
+        const sales = allSales.filter((s) => s.status !== enums_1.SaleStatus.REVERSED);
         const totalSales = sales.length;
         const totalRevenue = sales.reduce((s, v) => s + Number(v.total), 0);
         const totalProfit = sales.reduce((s, v) => s + Number(v.profit), 0);
@@ -23883,7 +23954,8 @@ var require_sales_service = __commonJS({
             unitPrice,
             unitCost,
             subtotal: subtotal2,
-            selectedOptions
+            selectedOptions,
+            portionScoopCount: item.portionScoopCount ?? null
           }));
         }
         const { subtotal, taxAmount, total } = (0, tax_util_1.calculateTaxFromIncludedPrice)(totalWithTax, taxRate);
@@ -23905,6 +23977,7 @@ var require_sales_service = __commonJS({
           total,
           profit: Number(profit.toFixed(2)),
           paymentMethod: dto.paymentMethod,
+          status: enums_1.SaleStatus.COMPLETED,
           amountPaid,
           change,
           customerId: dto.customerId,
@@ -23913,6 +23986,54 @@ var require_sales_service = __commonJS({
           items: saleItems
         });
         return manager.save(sale);
+      }
+      async reverse(id, dto, userId, ctx) {
+        const storeId = this.scopeStore(ctx);
+        return this.dataSource.transaction(async (manager) => {
+          const sale = await manager.findOne(sale_entity_1.Sale, {
+            where: { id },
+            relations: ["items"]
+          });
+          if (!sale)
+            throw new common_1.NotFoundException("Venta no encontrada");
+          if (sale.storeId !== storeId) {
+            throw new common_1.ForbiddenException("Venta no pertenece a esta tienda");
+          }
+          if (sale.status === enums_1.SaleStatus.REVERSED) {
+            throw new common_1.ConflictException("Esta venta ya est\xE1 anulada");
+          }
+          const reason = dto.reason?.trim() || "Anulaci\xF3n de venta";
+          const reference = `REVERSAL-SALE-${sale.id}`;
+          for (const item of sale.items ?? []) {
+            const product = await manager.findOne(product_entity_1.Product, {
+              where: { id: item.productId, storeId },
+              relations: [
+                "baseProduct",
+                "recipe",
+                "recipe.ingredient",
+                "optionGroups",
+                "optionGroups.options",
+                "optionGroups.options.ingredient"
+              ]
+            });
+            if (!product) {
+              throw new common_1.NotFoundException(`Producto ${item.productId} no encontrado para anular`);
+            }
+            const optionIds = item.selectedOptions?.optionIds;
+            const deductions = await (0, product_stock_util_1.planStockDeductions)(manager, product, item.quantity, storeId, optionIds, false);
+            await (0, product_stock_util_1.applyStockRestorations)(manager, deductions, storeId, userId, `${reference}-${product.id}`, `Anulaci\xF3n ${sale.ticketNumber}: ${reason}`);
+          }
+          await manager.update(sale_entity_1.Sale, { id: sale.id }, {
+            status: enums_1.SaleStatus.REVERSED,
+            reversedAt: /* @__PURE__ */ new Date(),
+            reversedByUserId: userId,
+            reverseReason: reason
+          });
+          return manager.findOne(sale_entity_1.Sale, {
+            where: { id: sale.id },
+            relations: ["items", "user", "customer"]
+          });
+        });
       }
     };
     exports2.SalesService = SalesService;
@@ -23942,7 +24063,7 @@ var require_sale_dto = __commonJS({
       if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.CreateSaleDto = exports2.SaleItemDto = void 0;
+    exports2.ReverseSaleDto = exports2.CreateSaleDto = exports2.SaleItemDto = void 0;
     var class_validator_1 = require("class-validator");
     var class_transformer_1 = require("class-transformer");
     var enums_1 = require_enums();
@@ -24009,6 +24130,16 @@ var require_sale_dto = __commonJS({
       (0, class_validator_1.Min)(0),
       __metadata("design:type", Number)
     ], CreateSaleDto.prototype, "amountPaid", void 0);
+    var ReverseSaleDto = class {
+      reason;
+    };
+    exports2.ReverseSaleDto = ReverseSaleDto;
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsString)(),
+      (0, class_validator_1.MaxLength)(500),
+      __metadata("design:type", String)
+    ], ReverseSaleDto.prototype, "reason", void 0);
   }
 });
 
@@ -24058,6 +24189,9 @@ var require_sales_controller = __commonJS({
       create(dto, userId, ctx) {
         return this.service.create(dto, userId, ctx);
       }
+      reverse(id, dto, userId, ctx) {
+        return this.service.reverse(id, dto, userId, ctx);
+      }
     };
     exports2.SalesController = SalesController;
     __decorate([
@@ -24093,6 +24227,17 @@ var require_sales_controller = __commonJS({
       __metadata("design:paramtypes", [sale_dto_1.CreateSaleDto, Number, Object]),
       __metadata("design:returntype", void 0)
     ], SalesController.prototype, "create", null);
+    __decorate([
+      (0, common_1.Post)(":id/reverse"),
+      (0, roles_decorator_1.Roles)(enums_1.UserRole.SUPER_ADMIN, enums_1.UserRole.ADMIN),
+      __param(0, (0, common_1.Param)("id", common_1.ParseIntPipe)),
+      __param(1, (0, common_1.Body)()),
+      __param(2, (0, current_user_decorator_1.CurrentUser)("sub")),
+      __param(3, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [Number, sale_dto_1.ReverseSaleDto, Number, Object]),
+      __metadata("design:returntype", void 0)
+    ], SalesController.prototype, "reverse", null);
     exports2.SalesController = SalesController = __decorate([
       (0, common_1.Controller)("sales"),
       (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
@@ -24783,11 +24928,40 @@ var require_tables_service = __commonJS({
         const storeId = this.scopeStore(ctx);
         const order = await this.getOpenOrder(orderId, storeId);
         const quantity = dto.quantity ?? 1;
-        const product = await this.loadProduct(dto.productId, storeId);
-        await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, quantity, storeId, dto.selectedOptionIds);
-        const optionLabel = dto.optionLabel?.trim() || this.buildOptionLabel(product, dto.selectedOptionIds, dto.portionScoopCount);
-        const productName = optionLabel ? `${product.name} (${optionLabel})` : product.name;
-        const unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, dto.selectedOptionIds, dto.portionScoopCount);
+        const match = await this.findMatchingItem(order.id, dto.productId, dto.selectedOptionIds, dto.portionScoopCount);
+        if (match) {
+          const newQty = Number(match.quantity) + quantity;
+          await this.assertQuantityAvailable(dto.productId, storeId, newQty, match.selectedOptionIds);
+          match.quantity = newQty;
+          const saved2 = await this.itemRepo.save(match);
+          const totals2 = await this.getOrderTotals(order.id);
+          return { item: saved2, ...totals2 };
+        }
+        const needsOptions = !!(dto.selectedOptionIds?.length || dto.portionScoopCount);
+        let product;
+        let unitPrice;
+        let productName;
+        let optionLabel = null;
+        if (!needsOptions) {
+          const lean = await this.loadProductLean(dto.productId, storeId);
+          if (lean.productType === enums_1.ProductType.SIMPLE) {
+            await this.assertQuantityAvailable(lean.id, storeId, quantity, null);
+            product = lean;
+            unitPrice = Number(lean.salePrice);
+            productName = lean.name;
+          } else {
+            product = await this.loadProduct(dto.productId, storeId);
+            await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, quantity, storeId, dto.selectedOptionIds);
+            unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, dto.selectedOptionIds, dto.portionScoopCount);
+            productName = product.name;
+          }
+        } else {
+          product = await this.loadProduct(dto.productId, storeId);
+          await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, quantity, storeId, dto.selectedOptionIds);
+          optionLabel = dto.optionLabel?.trim() || this.buildOptionLabel(product, dto.selectedOptionIds, dto.portionScoopCount) || null;
+          productName = optionLabel ? `${product.name} (${optionLabel})` : product.name;
+          unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, dto.selectedOptionIds, dto.portionScoopCount);
+        }
         const saved = await this.itemRepo.save(this.itemRepo.create({
           orderId: order.id,
           productId: product.id,
@@ -24795,7 +24969,7 @@ var require_tables_service = __commonJS({
           quantity,
           unitPrice,
           selectedOptionIds: dto.selectedOptionIds?.length ? dto.selectedOptionIds : null,
-          optionLabel: optionLabel || null,
+          optionLabel,
           portionScoopCount: dto.portionScoopCount ?? null,
           notes: dto.notes?.trim() || null
         }));
@@ -24804,13 +24978,25 @@ var require_tables_service = __commonJS({
       }
       async updateItem(orderId, itemId, dto, ctx) {
         const storeId = this.scopeStore(ctx);
-        await this.getOpenOrder(orderId, storeId);
-        const item = await this.itemRepo.findOne({ where: { id: itemId, orderId } });
+        const [order, item] = await Promise.all([
+          this.orderRepo.findOne({
+            where: { id: orderId },
+            select: ["id", "storeId", "status"]
+          }),
+          this.itemRepo.findOne({ where: { id: itemId, orderId } })
+        ]);
+        if (!order)
+          throw new common_1.NotFoundException("Orden de mesa no encontrada");
+        if (order.storeId !== storeId) {
+          throw new common_1.ForbiddenException("La orden no pertenece a esta tienda");
+        }
+        if (order.status !== enums_1.TableOrderStatus.OPEN) {
+          throw new common_1.BadRequestException("La orden ya est\xE1 cerrada");
+        }
         if (!item)
           throw new common_1.NotFoundException("Producto de la mesa no encontrado");
         if (dto.quantity !== void 0) {
-          const product = await this.loadProduct(item.productId, storeId);
-          await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, dto.quantity, storeId, item.selectedOptionIds ?? void 0);
+          await this.assertQuantityAvailable(item.productId, storeId, dto.quantity, item.selectedOptionIds);
           item.quantity = dto.quantity;
         }
         if (dto.notes !== void 0)
@@ -24909,7 +25095,10 @@ var require_tables_service = __commonJS({
         }
       }
       async getOpenOrder(orderId, storeId) {
-        const order = await this.orderRepo.findOne({ where: { id: orderId } });
+        const order = await this.orderRepo.findOne({
+          where: { id: orderId },
+          select: ["id", "storeId", "status", "tableId"]
+        });
         if (!order)
           throw new common_1.NotFoundException("Orden de mesa no encontrada");
         if (order.storeId !== storeId) {
@@ -24919,6 +25108,52 @@ var require_tables_service = __commonJS({
           throw new common_1.BadRequestException("La orden ya est\xE1 cerrada");
         }
         return order;
+      }
+      sameOptionIds(a, b) {
+        const left = [...a ?? []].sort((x, y) => x - y);
+        const right = [...b ?? []].sort((x, y) => x - y);
+        if (left.length !== right.length)
+          return false;
+        return left.every((v, i) => v === right[i]);
+      }
+      async findMatchingItem(orderId, productId, selectedOptionIds, portionScoopCount) {
+        const items = await this.itemRepo.find({ where: { orderId, productId } });
+        return items.find((item) => this.sameOptionIds(item.selectedOptionIds, selectedOptionIds) && (item.portionScoopCount ?? null) === (portionScoopCount ?? null)) ?? null;
+      }
+      async assertQuantityAvailable(productId, storeId, quantity, selectedOptionIds) {
+        if (quantity <= 0) {
+          throw new common_1.BadRequestException("Cantidad inv\xE1lida");
+        }
+        const lean = await this.loadProductLean(productId, storeId);
+        const needsFullPlan = lean.productType !== enums_1.ProductType.SIMPLE || (selectedOptionIds?.length ?? 0) > 0;
+        if (!needsFullPlan) {
+          if (Number(lean.stock) < quantity) {
+            throw new common_1.BadRequestException(`Stock insuficiente para ${lean.name}`);
+          }
+          return;
+        }
+        const product = await this.loadProduct(productId, storeId);
+        await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, quantity, storeId, selectedOptionIds ?? void 0);
+      }
+      async loadProductLean(productId, storeId) {
+        const product = await this.dataSource.manager.findOne(product_entity_1.Product, {
+          where: { id: productId, storeId },
+          select: [
+            "id",
+            "name",
+            "active",
+            "productType",
+            "stock",
+            "salePrice",
+            "costPrice",
+            "scoopCount",
+            "variableScoops"
+          ]
+        });
+        if (!product || !product.active) {
+          throw new common_1.NotFoundException(`Producto ${productId} no encontrado`);
+        }
+        return product;
       }
       async loadProduct(productId, storeId) {
         const product = await this.dataSource.manager.findOne(product_entity_1.Product, {
@@ -25241,14 +25476,14 @@ var require_reports_service = __commonJS({
       async getDashboard(ctx) {
         const { start, end } = (0, date_util_1.todayRangeColombia)();
         const storeId = (0, store_context_util_1.reportStoreId)(ctx);
-        const qb = this.saleRepo.createQueryBuilder("s").where("s.createdAt BETWEEN :start AND :end", { start, end });
+        const qb = this.saleRepo.createQueryBuilder("s").where("s.createdAt BETWEEN :start AND :end", { start, end }).andWhere("s.status = :status", { status: enums_1.SaleStatus.COMPLETED });
         if (storeId)
           qb.andWhere("s.storeId = :storeId", { storeId });
         const salesToday = await qb.getMany();
         const totalSales = salesToday.length;
         const revenue = salesToday.reduce((s, v) => s + Number(v.total), 0);
         const profit = salesToday.reduce((s, v) => s + Number(v.profit), 0);
-        const topQb = this.saleItemRepo.createQueryBuilder("si").innerJoin("si.sale", "s").select("si.productName", "name").addSelect("SUM(si.quantity)", "quantity").addSelect("SUM(si.subtotal)", "revenue").where("s.createdAt BETWEEN :start AND :end", { start, end });
+        const topQb = this.saleItemRepo.createQueryBuilder("si").innerJoin("si.sale", "s").select("si.productName", "name").addSelect("SUM(si.quantity)", "quantity").addSelect("SUM(si.subtotal)", "revenue").where("s.createdAt BETWEEN :start AND :end", { start, end }).andWhere("s.status = :status", { status: enums_1.SaleStatus.COMPLETED });
         if (storeId)
           topQb.andWhere("s.storeId = :storeId", { storeId });
         const topProducts = await topQb.groupBy("si.productName").orderBy("quantity", "DESC").limit(5).getRawMany();
@@ -25279,11 +25514,12 @@ var require_reports_service = __commonJS({
           relations: ["user", "customer"],
           order: { createdAt: "DESC" }
         });
+        const active = sales.filter((s) => s.status !== enums_1.SaleStatus.REVERSED);
         const summary = {
-          count: sales.length,
-          revenue: sales.reduce((s, v) => s + Number(v.total), 0),
-          profit: sales.reduce((s, v) => s + Number(v.profit), 0),
-          tax: sales.reduce((s, v) => s + Number(v.taxAmount), 0)
+          count: active.length,
+          revenue: active.reduce((s, v) => s + Number(v.total), 0),
+          profit: active.reduce((s, v) => s + Number(v.profit), 0),
+          tax: active.reduce((s, v) => s + Number(v.taxAmount), 0)
         };
         return { sales, summary };
       }
@@ -25314,7 +25550,8 @@ var require_reports_service = __commonJS({
         const storeId = (0, store_context_util_1.reportStoreId)(ctx);
         const { start, end } = (0, date_util_1.dateRangeColombia)(from, to);
         const where = {
-          createdAt: (0, typeorm_2.Between)(start, end)
+          createdAt: (0, typeorm_2.Between)(start, end),
+          status: enums_1.SaleStatus.COMPLETED
         };
         if (storeId)
           where.storeId = storeId;
@@ -25333,7 +25570,7 @@ var require_reports_service = __commonJS({
       async getProductsReport(from, to, ctx) {
         const storeId = (0, store_context_util_1.reportStoreId)(ctx);
         const { start, end } = (0, date_util_1.dateRangeColombia)(from, to);
-        const qb = this.saleItemRepo.createQueryBuilder("si").innerJoin("si.sale", "s").leftJoin("si.product", "p").leftJoin("p.category", "c").select("si.productId", "productId").addSelect("si.productName", "name").addSelect("COALESCE(c.name, 'Sin categor\xEDa')", "category").addSelect("SUM(si.quantity)", "quantity").addSelect("SUM(si.subtotal)", "revenue").addSelect("SUM(si.quantity * si.unitCost)", "cost").where("s.createdAt BETWEEN :start AND :end", { start, end });
+        const qb = this.saleItemRepo.createQueryBuilder("si").innerJoin("si.sale", "s").leftJoin("si.product", "p").leftJoin("p.category", "c").select("si.productId", "productId").addSelect("si.productName", "name").addSelect("COALESCE(c.name, 'Sin categor\xEDa')", "category").addSelect("SUM(si.quantity)", "quantity").addSelect("SUM(si.subtotal)", "revenue").addSelect("SUM(si.quantity * si.unitCost)", "cost").where("s.createdAt BETWEEN :start AND :end", { start, end }).andWhere("s.status = :status", { status: enums_1.SaleStatus.COMPLETED });
         if (storeId)
           qb.andWhere("s.storeId = :storeId", { storeId });
         const products = await qb.groupBy("si.productId").addGroupBy("si.productName").addGroupBy("c.name").orderBy("revenue", "DESC").getRawMany();
@@ -25364,7 +25601,8 @@ var require_reports_service = __commonJS({
         const storeId = (0, store_context_util_1.reportStoreId)(ctx);
         const { start, end } = (0, date_util_1.dateRangeColombia)(from, to);
         const where = {
-          createdAt: (0, typeorm_2.Between)(start, end)
+          createdAt: (0, typeorm_2.Between)(start, end),
+          status: enums_1.SaleStatus.COMPLETED
         };
         if (storeId)
           where.storeId = storeId;

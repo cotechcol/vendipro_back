@@ -8,7 +8,7 @@ import { Supplier } from '../suppliers/entities/supplier.entity';
 import { InventoryMovement } from '../inventory/entities/inventory-movement.entity';
 import { CreatePurchaseDto } from './dto/purchase.dto';
 import { PurchaseQueryDto } from './dto/purchase-query.dto';
-import { InventoryMovementType, ProductType } from '../common/enums';
+import { InventoryMovementType } from '../common/enums';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
 
@@ -62,13 +62,12 @@ export class PurchasesService {
       for (const item of dto.items) {
         const product = await manager.findOne(Product, { where: { id: item.productId, storeId } });
         if (!product) throw new NotFoundException(`Producto ${item.productId} no encontrado`);
+        if (!product.active) {
+          throw new BadRequestException(`${product.name} está inactivo`);
+        }
 
         const subtotal = item.quantity * item.unitCost;
         total += subtotal;
-
-        if (![ProductType.SIMPLE, ProductType.BULK].includes(product.productType)) {
-          throw new BadRequestException(`${product.name} no recibe compras directas`);
-        }
 
         const qty = Number(item.quantity);
         const stockBefore = Number(product.stock);

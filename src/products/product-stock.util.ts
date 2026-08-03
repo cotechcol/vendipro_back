@@ -58,6 +58,7 @@ async function planPortionWithOptions(
   saleQty: number,
   storeId: number,
   selectedOptionIds: number[],
+  validateStock = true,
 ): Promise<StockDeduction[]> {
   const groups = product.optionGroups?.length
     ? product.optionGroups
@@ -117,11 +118,13 @@ async function planPortionWithOptions(
 
   const deductions: StockDeduction[] = [];
   for (const [productId, entry] of totals) {
-    const ingredient = await manager.findOne(Product, { where: { id: productId, storeId } });
-    if (!ingredient || num(ingredient.stock) < entry.quantity) {
-      throw new BadRequestException(
-        `Stock insuficiente de ${entry.name} (requiere ${entry.quantity} ${ingredient?.stockUnit ?? ''})`,
-      );
+    if (validateStock) {
+      const ingredient = await manager.findOne(Product, { where: { id: productId, storeId } });
+      if (!ingredient || num(ingredient.stock) < entry.quantity) {
+        throw new BadRequestException(
+          `Stock insuficiente de ${entry.name} (requiere ${entry.quantity} ${ingredient?.stockUnit ?? ''})`,
+        );
+      }
     }
     deductions.push({ productId, productName: entry.name, quantity: entry.quantity });
   }
@@ -135,6 +138,7 @@ export async function planStockDeductions(
   saleQty: number,
   storeId: number,
   selectedOptionIds?: number[],
+  validateStock = true,
 ): Promise<StockDeduction[]> {
   if (saleQty <= 0) {
     throw new BadRequestException('Cantidad inválida');
@@ -148,7 +152,7 @@ export async function planStockDeductions(
 
       const hasAddons = groups.some((g) => g.kind === OptionGroupKind.ADDON);
       if (hasAddons) {
-        if (num(product.stock) < saleQty) {
+        if (validateStock && num(product.stock) < saleQty) {
           throw new BadRequestException(`Stock insuficiente para ${product.name}`);
         }
         const deductions: StockDeduction[] = [{
@@ -172,20 +176,22 @@ export async function planStockDeductions(
               deductions.push(addon);
             }
           }
-          for (const d of deductions) {
-            if (d.productId === product.id) continue;
-            const ingredient = await manager.findOne(Product, { where: { id: d.productId, storeId } });
-            if (!ingredient || num(ingredient.stock) < d.quantity) {
-              throw new BadRequestException(
-                `Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ''})`,
-              );
+          if (validateStock) {
+            for (const d of deductions) {
+              if (d.productId === product.id) continue;
+              const ingredient = await manager.findOne(Product, { where: { id: d.productId, storeId } });
+              if (!ingredient || num(ingredient.stock) < d.quantity) {
+                throw new BadRequestException(
+                  `Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ''})`,
+                );
+              }
             }
           }
         }
         return deductions;
       }
 
-      if (num(product.stock) < saleQty) {
+      if (validateStock && num(product.stock) < saleQty) {
         throw new BadRequestException(`Stock insuficiente para ${product.name}`);
       }
       return [{ productId: product.id, productName: product.name, quantity: saleQty }];
@@ -206,7 +212,14 @@ export async function planStockDeductions(
         if (!selectedOptionIds?.length) {
           throw new BadRequestException(`Selecciona envase para ${product.name}`);
         }
-        return planPortionWithOptions(manager, product, saleQty, storeId, selectedOptionIds);
+        return planPortionWithOptions(
+          manager,
+          product,
+          saleQty,
+          storeId,
+          selectedOptionIds,
+          validateStock,
+        );
       }
 
       if (!product.baseProductId || !product.portionSize) {
@@ -219,7 +232,7 @@ export async function planStockDeductions(
         throw new BadRequestException(`Insumo base de ${product.name} no encontrado`);
       }
       const deduct = num(product.portionSize) * saleQty;
-      if (num(base.stock) < deduct) {
+      if (validateStock && num(base.stock) < deduct) {
         throw new BadRequestException(
           `Stock insuficiente de ${base.name} (requiere ${deduct} ${base.stockUnit})`,
         );
@@ -244,7 +257,7 @@ export async function planStockDeductions(
           throw new BadRequestException(`Ingrediente no encontrado en receta de ${product.name}`);
         }
         const deduct = num(line.quantity) * saleQty;
-        if (num(ingredient.stock) < deduct) {
+        if (validateStock && num(ingredient.stock) < deduct) {
           throw new BadRequestException(
             `Stock insuficiente de ${ingredient.name} (requiere ${deduct} ${ingredient.stockUnit})`,
           );
@@ -272,12 +285,14 @@ export async function planStockDeductions(
             deductions.push(addon);
           }
         }
-        for (const d of deductions) {
-          const ingredient = await manager.findOne(Product, { where: { id: d.productId, storeId } });
-          if (!ingredient || num(ingredient.stock) < d.quantity) {
-            throw new BadRequestException(
-              `Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ''})`,
-            );
+        if (validateStock) {
+          for (const d of deductions) {
+            const ingredient = await manager.findOne(Product, { where: { id: d.productId, storeId } });
+            if (!ingredient || num(ingredient.stock) < d.quantity) {
+              throw new BadRequestException(
+                `Stock insuficiente de ${d.productName} (requiere ${d.quantity} ${ingredient?.stockUnit ?? ''})`,
+              );
+            }
           }
         }
       }
@@ -315,6 +330,40 @@ export async function applyStockDeductions(
         stockBefore,
         stockAfter,
         reference,
+        userId,
+      }),
+    );
+  }
+}
+
+/** Restaura stock (inverso de una venta) y registra movimientos sale_reversal. */
+export async function applyStockRestorations(
+  manager: EntityManager,
+  deductions: StockDeduction[],
+  storeId: number,
+  userId: number,
+  reference: string,
+  notes?: string,
+): Promise<void> {
+  for (const d of deductions) {
+    const product = await manager.findOne(Product, { where: { id: d.productId, storeId } });
+    if (!product) continue;
+
+    const stockBefore = num(product.stock);
+    const stockAfter = Number((stockBefore + d.quantity).toFixed(3));
+    product.stock = stockAfter;
+    await manager.save(product);
+
+    await manager.save(
+      manager.create(InventoryMovement, {
+        storeId,
+        productId: product.id,
+        type: InventoryMovementType.SALE_REVERSAL,
+        quantity: d.quantity,
+        stockBefore,
+        stockAfter,
+        reference,
+        notes: notes || undefined,
         userId,
       }),
     );

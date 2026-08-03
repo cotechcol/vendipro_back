@@ -1,19 +1,25 @@
-import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, EntityManager } from 'typeorm';
 import { Sale } from './entities/sale.entity';
 import { SaleItem } from './entities/sale-item.entity';
 import { Product } from '../products/entities/product.entity';
 import { CashSession } from '../cash-sessions/entities/cash-session.entity';
-import { CreateSaleDto } from './dto/sale.dto';
-import { CashSessionStatus, PaymentMethod } from '../common/enums';
+import { CreateSaleDto, ReverseSaleDto } from './dto/sale.dto';
+import { CashSessionStatus, PaymentMethod, SaleStatus } from '../common/enums';
 import { calculateTaxFromIncludedPrice, generateTicketNumber } from '../common/utils/tax.util';
 import { SettingsService } from '../settings/settings.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
 import { dateRangeColombia } from '../common/utils/date.util';
-import { planStockDeductions, applyStockDeductions, calculateSaleUnitCost, calculateSaleUnitPrice } from '../products/product-stock.util';
+import {
+  planStockDeductions,
+  applyStockDeductions,
+  applyStockRestorations,
+  calculateSaleUnitCost,
+  calculateSaleUnitPrice,
+} from '../products/product-stock.util';
 
 @Injectable()
 export class SalesService {
@@ -162,6 +168,7 @@ export class SalesService {
           unitCost,
           subtotal,
           selectedOptions,
+          portionScoopCount: item.portionScoopCount ?? null,
         }),
       );
     }
@@ -187,6 +194,7 @@ export class SalesService {
       total,
       profit: Number(profit.toFixed(2)),
       paymentMethod: dto.paymentMethod,
+      status: SaleStatus.COMPLETED,
       amountPaid,
       change,
       customerId: dto.customerId,
@@ -196,5 +204,74 @@ export class SalesService {
     });
 
     return manager.save(sale);
+  }
+
+  async reverse(id: number, dto: ReverseSaleDto, userId: number, ctx: StoreContext) {
+    const storeId = this.scopeStore(ctx);
+
+    return this.dataSource.transaction(async (manager) => {
+      const sale = await manager.findOne(Sale, {
+        where: { id },
+        relations: ['items'],
+      });
+      if (!sale) throw new NotFoundException('Venta no encontrada');
+      if (sale.storeId !== storeId) {
+        throw new ForbiddenException('Venta no pertenece a esta tienda');
+      }
+      if (sale.status === SaleStatus.REVERSED) {
+        throw new ConflictException('Esta venta ya está anulada');
+      }
+
+      const reason = dto.reason?.trim() || 'Anulación de venta';
+      const reference = `REVERSAL-SALE-${sale.id}`;
+
+      for (const item of sale.items ?? []) {
+        const product = await manager.findOne(Product, {
+          where: { id: item.productId, storeId },
+          relations: [
+            'baseProduct',
+            'recipe',
+            'recipe.ingredient',
+            'optionGroups',
+            'optionGroups.options',
+            'optionGroups.options.ingredient',
+          ],
+        });
+        if (!product) {
+          throw new NotFoundException(`Producto ${item.productId} no encontrado para anular`);
+        }
+
+        const optionIds = item.selectedOptions?.optionIds;
+        const deductions = await planStockDeductions(
+          manager,
+          product,
+          item.quantity,
+          storeId,
+          optionIds,
+          false,
+        );
+
+        await applyStockRestorations(
+          manager,
+          deductions,
+          storeId,
+          userId,
+          `${reference}-${product.id}`,
+          `Anulación ${sale.ticketNumber}: ${reason}`,
+        );
+      }
+
+      await manager.update(Sale, { id: sale.id }, {
+        status: SaleStatus.REVERSED,
+        reversedAt: new Date(),
+        reversedByUserId: userId,
+        reverseReason: reason,
+      });
+
+      return manager.findOne(Sale, {
+        where: { id: sale.id },
+        relations: ['items', 'user', 'customer'],
+      });
+    });
   }
 }

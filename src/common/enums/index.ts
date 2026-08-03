@@ -20,12 +20,18 @@ export enum PaymentMethod {
   MIXED = 'mixed',
 }
 
+export enum SaleStatus {
+  COMPLETED = 'completed',
+  REVERSED = 'reversed',
+}
+
 export enum InventoryMovementType {
   SALE = 'sale',
   PURCHASE = 'purchase',
   ADJUSTMENT_IN = 'adjustment_in',
   ADJUSTMENT_OUT = 'adjustment_out',
   PRODUCTION = 'production',
+  SALE_REVERSAL = 'sale_reversal',
 }
 
 export enum ProductType {

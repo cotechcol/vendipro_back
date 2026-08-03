@@ -8,7 +8,7 @@ import {
   OneToMany,
   Unique,
 } from 'typeorm';
-import { PaymentMethod } from '../../common/enums';
+import { PaymentMethod, SaleStatus } from '../../common/enums';
 import { Store } from '../../stores/entities/store.entity';
 import { User } from '../../users/entities/user.entity';
 import { Customer } from '../../customers/entities/customer.entity';
@@ -46,13 +46,20 @@ export class Sale {
   @Column({ name: 'payment_method', type: 'enum', enum: PaymentMethod, default: PaymentMethod.CASH })
   paymentMethod: PaymentMethod;
 
+  @Column({
+    type: 'enum',
+    enum: SaleStatus,
+    default: SaleStatus.COMPLETED,
+  })
+  status: SaleStatus;
+
   @Column({ name: 'amount_paid', type: 'decimal', precision: 12, scale: 2, nullable: true })
   amountPaid: number;
 
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
   change: number;
 
-  @Column({ name: 'customer_id', nullable: true })
+  @Column({ name: 'customer_id', type: 'int', nullable: true })
   customerId: number;
 
   @ManyToOne(() => Customer, (customer) => customer.sales, { nullable: true })
@@ -72,6 +79,19 @@ export class Sale {
   @ManyToOne(() => CashSession, (session) => session.sales)
   @JoinColumn({ name: 'cash_session_id' })
   cashSession: CashSession;
+
+  @Column({ name: 'reversed_at', type: 'datetime', nullable: true })
+  reversedAt: Date | null;
+
+  @Column({ name: 'reversed_by_user_id', type: 'int', nullable: true })
+  reversedByUserId: number | null;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'reversed_by_user_id' })
+  reversedByUser: User | null;
+
+  @Column({ name: 'reverse_reason', type: 'varchar', length: 500, nullable: true })
+  reverseReason: string | null;
 
   @OneToMany(() => SaleItem, (item) => item.sale, { cascade: true })
   items: SaleItem[];

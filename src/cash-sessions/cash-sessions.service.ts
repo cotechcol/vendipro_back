@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { CashSession } from './entities/cash-session.entity';
 import { Sale } from '../sales/entities/sale.entity';
 import { OpenCashSessionDto, CloseCashSessionDto } from './dto/cash-session.dto';
-import { CashSessionStatus, PaymentMethod, UserRole } from '../common/enums';
+import { CashSessionStatus, PaymentMethod, SaleStatus, UserRole } from '../common/enums';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
@@ -146,7 +146,8 @@ export class CashSessionsService {
   }
 
   private async getSessionSummary(sessionId: number) {
-    const sales = await this.saleRepo.find({ where: { cashSessionId: sessionId } });
+    const allSales = await this.saleRepo.find({ where: { cashSessionId: sessionId } });
+    const sales = allSales.filter((s) => s.status !== SaleStatus.REVERSED);
 
     const totalSales = sales.length;
     const totalRevenue = sales.reduce((s, v) => s + Number(v.total), 0);

@@ -1,5 +1,5 @@
 import {
-  IsArray, IsEnum, IsInt, IsNumber, IsOptional, Min, ValidateNested, ArrayMinSize,
+  IsArray, IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, ValidateNested, ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaymentMethod } from '../../common/enums';
@@ -47,4 +47,11 @@ export class CreateSaleDto {
   @IsNumber()
   @Min(0)
   amountPaid?: number;
+}
+
+export class ReverseSaleDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }

@@ -44,4 +44,7 @@ export class SaleItem {
 
   @Column({ name: 'selected_options', type: 'json', nullable: true })
   selectedOptions: { optionIds: number[]; labels: string[] } | null;
+
+  @Column({ name: 'portion_scoop_count', type: 'int', nullable: true })
+  portionScoopCount: number | null;
 }

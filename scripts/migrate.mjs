@@ -23,9 +23,11 @@ console.log(`Migrando ${database} en ${host}...`);
 
 const { runProductMigration } = require('../dist/database/product-migration.js');
 const { runTableMigration } = require('../dist/database/table-migration.js');
+const { runSaleMigration } = require('../dist/database/sale-migration.js');
 
 runProductMigration()
   .then(() => runTableMigration())
+  .then(() => runSaleMigration())
   .then(() => {
     console.log('OK — migraciones aplicadas');
   })
