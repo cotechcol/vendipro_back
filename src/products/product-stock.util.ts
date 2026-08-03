@@ -370,14 +370,46 @@ export async function applyStockRestorations(
   }
 }
 
-async function sellableForPortionWithOptions(
-  manager: EntityManager,
-  product: Product,
-): Promise<number> {
-  const groups = product.optionGroups?.length
-    ? product.optionGroups
-    : await loadOptionGroups(manager, product.id);
+/** Unidades vendibles usando solo datos ya hidratados (sin queries). */
+export function getSellableUnitsSync(product: Product): number {
+  switch (product.productType) {
+    case ProductType.SIMPLE:
+      return Math.floor(num(product.stock));
 
+    case ProductType.BULK:
+    case ProductType.PREPARED:
+      return 0;
+
+    case ProductType.PORTION: {
+      const groups = product.optionGroups ?? [];
+      if (groups.length > 0) {
+        return sellableForPortionWithOptionsSync(product);
+      }
+      if (!product.baseProductId || !product.portionSize) return 0;
+      const base = product.baseProduct;
+      if (!base || num(product.portionSize) <= 0) return 0;
+      return Math.floor(num(base.stock) / num(product.portionSize));
+    }
+
+    case ProductType.COMPOSITE: {
+      const recipes = product.recipe ?? [];
+      if (recipes.length === 0) return 0;
+      let minUnits = Infinity;
+      for (const line of recipes) {
+        const ingredient = line.ingredient;
+        if (!ingredient || num(line.quantity) <= 0) return 0;
+        minUnits = Math.min(minUnits, Math.floor(num(ingredient.stock) / num(line.quantity)));
+      }
+      return minUnits === Infinity ? 0 : minUnits;
+    }
+
+    default:
+      return 0;
+  }
+}
+
+function sellableForPortionWithOptionsSync(product: Product): number {
+  const groups = product.optionGroups ?? [];
   if (groups.length === 0 || !product.portionSize) return 0;
 
   const scoopCount = product.scoopCount ?? 1;
@@ -389,8 +421,7 @@ async function sellableForPortionWithOptions(
       let maxFlavor = -1;
       for (const option of group.options ?? []) {
         if (!option.ingredientProductId) continue;
-        const ingredient = option.ingredient
-          ?? await manager.findOne(Product, { where: { id: option.ingredientProductId } });
+        const ingredient = option.ingredient;
         if (!ingredient || num(option.quantity) <= 0) continue;
         maxFlavor = Math.max(maxFlavor, Math.floor(num(ingredient.stock) / num(option.quantity)));
       }
@@ -403,8 +434,7 @@ async function sellableForPortionWithOptions(
       let maxContainer = -1;
       for (const option of group.options ?? []) {
         if (!option.ingredientProductId) continue;
-        const ingredient = option.ingredient
-          ?? await manager.findOne(Product, { where: { id: option.ingredientProductId } });
+        const ingredient = option.ingredient;
         if (!ingredient || num(option.quantity) <= 0) continue;
         maxContainer = Math.max(
           maxContainer,
@@ -417,7 +447,10 @@ async function sellableForPortionWithOptions(
     }
   }
 
-  if (!limits.length) return 9999;
+  if (!limits.length) {
+    // Grupos sin opciones hidratadas: no bloquear catálogo
+    return Math.max(1, Math.floor(num(product.stock)) || 99);
+  }
   return Math.min(...limits);
 }
 
@@ -439,7 +472,9 @@ export async function getSellableUnits(
         : await loadOptionGroups(manager, product.id);
 
       if (groups.length > 0) {
-        return sellableForPortionWithOptions(manager, product);
+        // Asegurar groups en el producto para el cálculo sync
+        if (!product.optionGroups?.length) product.optionGroups = groups;
+        return sellableForPortionWithOptionsSync(product);
       }
 
       if (!product.baseProductId || !product.portionSize) return 0;

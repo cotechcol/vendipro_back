@@ -4139,6 +4139,7 @@ var require_product_stock_util = __commonJS({
     exports2.planStockDeductions = planStockDeductions;
     exports2.applyStockDeductions = applyStockDeductions;
     exports2.applyStockRestorations = applyStockRestorations;
+    exports2.getSellableUnitsSync = getSellableUnitsSync;
     exports2.getSellableUnits = getSellableUnits;
     exports2.isLowStock = isLowStock;
     exports2.computeProductionDeductions = computeProductionDeductions;
@@ -4403,8 +4404,44 @@ var require_product_stock_util = __commonJS({
         }));
       }
     }
-    async function sellableForPortionWithOptions(manager, product) {
-      const groups = product.optionGroups?.length ? product.optionGroups : await loadOptionGroups(manager, product.id);
+    function getSellableUnitsSync(product) {
+      switch (product.productType) {
+        case enums_1.ProductType.SIMPLE:
+          return Math.floor(num(product.stock));
+        case enums_1.ProductType.BULK:
+        case enums_1.ProductType.PREPARED:
+          return 0;
+        case enums_1.ProductType.PORTION: {
+          const groups = product.optionGroups ?? [];
+          if (groups.length > 0) {
+            return sellableForPortionWithOptionsSync(product);
+          }
+          if (!product.baseProductId || !product.portionSize)
+            return 0;
+          const base = product.baseProduct;
+          if (!base || num(product.portionSize) <= 0)
+            return 0;
+          return Math.floor(num(base.stock) / num(product.portionSize));
+        }
+        case enums_1.ProductType.COMPOSITE: {
+          const recipes = product.recipe ?? [];
+          if (recipes.length === 0)
+            return 0;
+          let minUnits = Infinity;
+          for (const line of recipes) {
+            const ingredient = line.ingredient;
+            if (!ingredient || num(line.quantity) <= 0)
+              return 0;
+            minUnits = Math.min(minUnits, Math.floor(num(ingredient.stock) / num(line.quantity)));
+          }
+          return minUnits === Infinity ? 0 : minUnits;
+        }
+        default:
+          return 0;
+      }
+    }
+    function sellableForPortionWithOptionsSync(product) {
+      const groups = product.optionGroups ?? [];
       if (groups.length === 0 || !product.portionSize)
         return 0;
       const scoopCount = product.scoopCount ?? 1;
@@ -4416,7 +4453,7 @@ var require_product_stock_util = __commonJS({
           for (const option of group.options ?? []) {
             if (!option.ingredientProductId)
               continue;
-            const ingredient = option.ingredient ?? await manager.findOne(product_entity_1.Product, { where: { id: option.ingredientProductId } });
+            const ingredient = option.ingredient;
             if (!ingredient || num(option.quantity) <= 0)
               continue;
             maxFlavor = Math.max(maxFlavor, Math.floor(num(ingredient.stock) / num(option.quantity)));
@@ -4430,7 +4467,7 @@ var require_product_stock_util = __commonJS({
           for (const option of group.options ?? []) {
             if (!option.ingredientProductId)
               continue;
-            const ingredient = option.ingredient ?? await manager.findOne(product_entity_1.Product, { where: { id: option.ingredientProductId } });
+            const ingredient = option.ingredient;
             if (!ingredient || num(option.quantity) <= 0)
               continue;
             maxContainer = Math.max(maxContainer, Math.floor(num(ingredient.stock) / num(option.quantity)));
@@ -4440,8 +4477,9 @@ var require_product_stock_util = __commonJS({
           }
         }
       }
-      if (!limits.length)
-        return 9999;
+      if (!limits.length) {
+        return Math.max(1, Math.floor(num(product.stock)) || 99);
+      }
       return Math.min(...limits);
     }
     async function getSellableUnits(manager, product) {
@@ -4453,7 +4491,9 @@ var require_product_stock_util = __commonJS({
         case enums_1.ProductType.PORTION: {
           const groups = product.optionGroups?.length ? product.optionGroups : await loadOptionGroups(manager, product.id);
           if (groups.length > 0) {
-            return sellableForPortionWithOptions(manager, product);
+            if (!product.optionGroups?.length)
+              product.optionGroups = groups;
+            return sellableForPortionWithOptionsSync(product);
           }
           if (!product.baseProductId || !product.portionSize)
             return 0;
@@ -4857,14 +4897,14 @@ var require_products_service = __commonJS({
         this.dataSource = dataSource;
         this.storage = storage;
       }
-      async enrichProduct(product, sellableUnits) {
+      async enrichProduct(product, sellableUnits, options) {
         const { imageKey, ...rest } = product;
         const enriched = {
           ...rest,
           sellableUnits: sellableUnits ?? void 0,
           lowStock: (0, product_stock_util_1.isLowStock)(product)
         };
-        if (imageKey && this.storage.isConfigured()) {
+        if (!options?.skipImageUrl && imageKey && this.storage.isConfigured()) {
           try {
             enriched.imageUrl = await this.storage.getSignedUrl(imageKey);
           } catch {
@@ -4903,58 +4943,90 @@ var require_products_service = __commonJS({
       }
       async findForPos(search, categoryId, ctx) {
         const storeId = this.scopeStore(ctx);
-        const qb = this.repo.createQueryBuilder("p").leftJoinAndSelect("p.category", "category").leftJoinAndSelect("p.baseProduct", "baseProduct").leftJoinAndSelect("p.optionGroups", "optionGroups").leftJoinAndSelect("optionGroups.options", "options").where("p.storeId = :storeId", { storeId }).andWhere("p.active = true").andWhere("p.visibleInPos = true").andWhere("p.productType NOT IN (:...excluded)", {
+        const qb = this.repo.createQueryBuilder("p").leftJoinAndSelect("p.category", "category").leftJoinAndSelect("p.baseProduct", "baseProduct").where("p.storeId = :storeId", { storeId }).andWhere("p.active = true").andWhere("p.visibleInPos = true").andWhere("p.productType NOT IN (:...excluded)", {
           excluded: [enums_1.ProductType.BULK, enums_1.ProductType.PREPARED]
-        }).orderBy("p.name", "ASC").addOrderBy("optionGroups.sortOrder", "ASC").addOrderBy("optionGroups.id", "ASC");
+        }).orderBy("p.name", "ASC");
         if (search)
           qb.andWhere("(p.name LIKE :s OR p.sku LIKE :s)", { s: `%${search}%` });
         if (categoryId)
           qb.andWhere("p.categoryId = :categoryId", { categoryId });
         const products = await qb.getMany();
-        await this.hydratePosRelations(products);
-        return Promise.all(products.map(async (p) => {
-          const sellable = await (0, product_stock_util_1.getSellableUnits)(this.repo.manager, p);
-          return this.enrichProduct(p, sellable);
-        }));
-      }
-      async hydratePosRelations(products) {
         if (!products.length)
-          return;
+          return [];
+        await this.hydratePosCatalog(products);
+        return Promise.all(products.map((p) => this.enrichProduct(p, (0, product_stock_util_1.getSellableUnitsSync)(p))));
+      }
+      async hydratePosCatalog(products) {
+        const ids = products.map((p) => p.id);
         const compositeIds = products.filter((p) => p.productType === enums_1.ProductType.COMPOSITE).map((p) => p.id);
-        const recipes = compositeIds.length ? await this.recipeRepo.find({
-          where: { productId: (0, typeorm_2.In)(compositeIds) },
-          relations: ["ingredient"]
-        }) : [];
+        const groupRepo = this.dataSource.getRepository(product_option_group_entity_1.ProductOptionGroup);
+        const [groups, recipes] = await Promise.all([
+          groupRepo.find({
+            where: { productId: (0, typeorm_2.In)(ids) },
+            order: { sortOrder: "ASC", id: "ASC" }
+          }),
+          compositeIds.length ? this.recipeRepo.find({
+            where: { productId: (0, typeorm_2.In)(compositeIds) },
+            relations: ["ingredient"]
+          }) : Promise.resolve([])
+        ]);
+        const groupsByProduct = /* @__PURE__ */ new Map();
+        for (const group of groups) {
+          const list = groupsByProduct.get(group.productId) ?? [];
+          group.options = [];
+          list.push(group);
+          groupsByProduct.set(group.productId, list);
+        }
+        for (const product of products) {
+          product.optionGroups = groupsByProduct.get(product.id) ?? [];
+        }
         const recipesByProduct = /* @__PURE__ */ new Map();
         for (const line of recipes) {
           const list = recipesByProduct.get(line.productId) ?? [];
           list.push(line);
           recipesByProduct.set(line.productId, list);
         }
-        const ingredientIds = /* @__PURE__ */ new Set();
         for (const product of products) {
-          product.recipe = recipesByProduct.get(product.id) ?? [];
-          for (const group of product.optionGroups ?? []) {
-            for (const option of group.options ?? []) {
-              if (option.ingredientProductId)
-                ingredientIds.add(option.ingredientProductId);
-            }
+          if (product.productType === enums_1.ProductType.COMPOSITE) {
+            product.recipe = recipesByProduct.get(product.id) ?? [];
           }
         }
-        if (!ingredientIds.size)
+        const portionIds = products.filter((p) => p.productType === enums_1.ProductType.PORTION && (p.optionGroups?.length ?? 0) > 0).map((p) => p.id);
+        if (!portionIds.length)
           return;
-        const ingredients = await this.repo.find({
-          where: { id: (0, typeorm_2.In)([...ingredientIds]) }
+        const portionGroups = groups.filter((g) => portionIds.includes(g.productId));
+        if (!portionGroups.length)
+          return;
+        const optionRepo = this.dataSource.getRepository(product_option_entity_1.ProductOption);
+        const options = await optionRepo.find({
+          where: { groupId: (0, typeorm_2.In)(portionGroups.map((g) => g.id)) }
         });
-        const ingredientMap = new Map(ingredients.map((i) => [i.id, i]));
-        for (const product of products) {
-          for (const group of product.optionGroups ?? []) {
-            for (const option of group.options ?? []) {
-              if (option.ingredientProductId) {
-                option.ingredient = ingredientMap.get(option.ingredientProductId) ?? null;
-              }
+        const optionsByGroup = /* @__PURE__ */ new Map();
+        const ingredientIds = /* @__PURE__ */ new Set();
+        for (const option of options) {
+          const list = optionsByGroup.get(option.groupId) ?? [];
+          list.push(option);
+          optionsByGroup.set(option.groupId, list);
+          if (option.ingredientProductId)
+            ingredientIds.add(option.ingredientProductId);
+        }
+        const ingredientMap = /* @__PURE__ */ new Map();
+        if (ingredientIds.size) {
+          const ingredients = await this.repo.find({
+            where: { id: (0, typeorm_2.In)([...ingredientIds]) }
+          });
+          for (const ingredient of ingredients) {
+            ingredientMap.set(ingredient.id, ingredient);
+          }
+        }
+        for (const group of portionGroups) {
+          const groupOptions = optionsByGroup.get(group.id) ?? [];
+          for (const option of groupOptions) {
+            if (option.ingredientProductId) {
+              option.ingredient = ingredientMap.get(option.ingredientProductId) ?? null;
             }
           }
+          group.options = groupOptions;
         }
       }
       async findLowStock(ctx) {
