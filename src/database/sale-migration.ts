@@ -32,6 +32,21 @@ async function columnExists(
   return rows.length > 0;
 }
 
+async function enumHasValue(
+  connection: mysql.Connection,
+  table: string,
+  column: string,
+  value: string,
+): Promise<boolean> {
+  const [rows] = await connection.query<mysql.RowDataPacket[]>(
+    `SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [table, column],
+  );
+  const columnType = String(rows[0]?.COLUMN_TYPE ?? '');
+  return columnType.includes(`'${value}'`);
+}
+
 export async function runSaleMigration(): Promise<void> {
   const connection = await createConnection();
 
@@ -85,7 +100,10 @@ export async function runSaleMigration(): Promise<void> {
     }
 
     if (await tableExists(connection, 'inventory_movements')) {
-      if (await columnExists(connection, 'inventory_movements', 'type')) {
+      if (
+        await columnExists(connection, 'inventory_movements', 'type')
+        && !(await enumHasValue(connection, 'inventory_movements', 'type', 'sale_reversal'))
+      ) {
         await connection.query(`
           ALTER TABLE inventory_movements
           MODIFY COLUMN type ENUM(

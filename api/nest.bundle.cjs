@@ -24,6 +24,903 @@ var require_timezone_util = __commonJS({
   }
 });
 
+// dist/database/store-migration.js
+var require_store_migration = __commonJS({
+  "dist/database/store-migration.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m[k];
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    }) : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    })();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.runStoreMigration = runStoreMigration;
+    var mysql = __importStar(require("mysql2/promise"));
+    var TABLES_WITH_STORE_ID = [
+      "settings",
+      "categories",
+      "products",
+      "customers",
+      "suppliers",
+      "sales",
+      "cash_sessions",
+      "purchases",
+      "inventory_movements"
+    ];
+    async function runStoreMigration() {
+      const connection = await mysql.createConnection({
+        host: process.env.DB_HOST ?? "localhost",
+        port: Number(process.env.DB_PORT ?? 3306),
+        user: process.env.DB_USERNAME ?? "root",
+        password: process.env.DB_PASSWORD ?? "",
+        database: process.env.DB_DATABASE ?? "pos_db"
+      });
+      try {
+        const db = process.env.DB_DATABASE ?? "pos_db";
+        const [dbRows] = await connection.query("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?", [db]);
+        if (dbRows.length === 0) {
+          console.log("[migration] Base de datos no existe a\xFAn; TypeORM la crear\xE1.");
+          return;
+        }
+        await ensureStoresTable(connection);
+        const defaultStoreId = await ensureDefaultStore(connection);
+        for (const table of TABLES_WITH_STORE_ID) {
+          await backfillStoreId(connection, table, defaultStoreId);
+        }
+        await backfillUsersStoreId(connection, defaultStoreId);
+        await dropInvalidForeignKeys(connection, db);
+        console.log(`[migration] Datos asignados a tienda default (id=${defaultStoreId}).`);
+      } finally {
+        await connection.end();
+      }
+    }
+    async function ensureStoresTable(connection) {
+      await connection.query(`
+    CREATE TABLE IF NOT EXISTS stores (
+      id INT NOT NULL AUTO_INCREMENT,
+      name VARCHAR(150) NOT NULL,
+      code VARCHAR(50) NOT NULL,
+      address TEXT NULL,
+      phone VARCHAR(20) NULL,
+      active TINYINT NOT NULL DEFAULT 1,
+      created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+      PRIMARY KEY (id),
+      UNIQUE KEY UQ_stores_code (code)
+    ) ENGINE=InnoDB
+  `);
+    }
+    async function ensureDefaultStore(connection) {
+      const [rows] = await connection.query("SELECT id FROM stores ORDER BY id ASC LIMIT 1");
+      if (rows.length > 0) {
+        return rows[0].id;
+      }
+      const [result] = await connection.query(`INSERT INTO stores (name, code, address, active)
+     VALUES ('Tienda Demo POS', 'demo', 'Migraci\xF3n autom\xE1tica', 1)`);
+      return result.insertId;
+    }
+    async function tableExists(connection, table) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]);
+      return rows.length > 0;
+    }
+    async function columnExists(connection, table, column) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, column]);
+      return rows.length > 0;
+    }
+    async function backfillStoreId(connection, table, defaultStoreId) {
+      if (!await tableExists(connection, table))
+        return;
+      if (!await columnExists(connection, table, "store_id")) {
+        await connection.query(`ALTER TABLE \`${table}\` ADD COLUMN store_id INT NULL`);
+      }
+      await connection.query(`UPDATE \`${table}\` SET store_id = ? WHERE store_id IS NULL OR store_id = 0`, [defaultStoreId]);
+      await connection.query(`UPDATE \`${table}\` t
+     LEFT JOIN stores s ON t.store_id = s.id
+     SET t.store_id = ?
+     WHERE t.store_id IS NOT NULL AND s.id IS NULL`, [defaultStoreId]);
+    }
+    async function backfillUsersStoreId(connection, defaultStoreId) {
+      if (!await tableExists(connection, "users"))
+        return;
+      if (!await columnExists(connection, "users", "store_id")) {
+        await connection.query("ALTER TABLE users ADD COLUMN store_id INT NULL");
+      }
+      await connection.query(`UPDATE users SET store_id = ? WHERE store_id IS NULL OR store_id = 0`, [defaultStoreId]);
+      await connection.query(`UPDATE users u
+     LEFT JOIN stores s ON u.store_id = s.id
+     SET u.store_id = ?
+     WHERE u.store_id IS NOT NULL AND s.id IS NULL`, [defaultStoreId]);
+      await connection.query(`UPDATE users SET store_id = NULL WHERE role = 'super_admin'`);
+    }
+    async function dropInvalidForeignKeys(connection, database) {
+      const [fks] = await connection.query(`SELECT TABLE_NAME, CONSTRAINT_NAME
+     FROM information_schema.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA = ?
+       AND REFERENCED_TABLE_NAME = 'stores'
+       AND COLUMN_NAME = 'store_id'`, [database]);
+      for (const fk of fks) {
+        const table = fk.TABLE_NAME;
+        const constraint = fk.CONSTRAINT_NAME;
+        try {
+          await connection.query(`ALTER TABLE \`${table}\` DROP FOREIGN KEY \`${constraint}\``);
+        } catch {
+        }
+      }
+    }
+  }
+});
+
+// dist/database/product-migration.js
+var require_product_migration = __commonJS({
+  "dist/database/product-migration.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m[k];
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    }) : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    })();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.runProductMigration = runProductMigration;
+    var mysql = __importStar(require("mysql2/promise"));
+    async function createConnection() {
+      return mysql.createConnection({
+        host: process.env.DB_HOST ?? "localhost",
+        port: Number(process.env.DB_PORT ?? 3306),
+        user: process.env.DB_USERNAME ?? "root",
+        password: process.env.DB_PASSWORD ?? "",
+        database: process.env.DB_DATABASE ?? "pos_db"
+      });
+    }
+    async function tableExists(connection, table) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]);
+      return rows.length > 0;
+    }
+    async function columnExists(connection, table, column) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, column]);
+      return rows.length > 0;
+    }
+    async function columnIsNullable(connection, table, column) {
+      const [rows] = await connection.query(`SELECT IS_NULLABLE FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, column]);
+      return rows[0]?.IS_NULLABLE === "YES";
+    }
+    async function runProductMigration() {
+      const connection = await createConnection();
+      try {
+        if (!await tableExists(connection, "products")) {
+          console.log("[product-migration] Tabla products no existe; TypeORM la crear\xE1.");
+          return;
+        }
+        if (!await columnExists(connection, "products", "product_type")) {
+          await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN product_type ENUM('simple','bulk','portion','composite') NOT NULL DEFAULT 'simple'
+        AFTER description
+      `);
+          console.log("[product-migration] Columna product_type agregada");
+        }
+        if (!await columnExists(connection, "products", "stock_unit")) {
+          await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN stock_unit ENUM('unit','g','ml') NOT NULL DEFAULT 'unit'
+        AFTER product_type
+      `);
+          console.log("[product-migration] Columna stock_unit agregada");
+        }
+        if (!await columnExists(connection, "products", "base_product_id")) {
+          await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN base_product_id INT NULL
+        AFTER stock_unit
+      `);
+          console.log("[product-migration] Columna base_product_id agregada");
+        }
+        if (!await columnExists(connection, "products", "portion_size")) {
+          await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN portion_size DECIMAL(12,3) NULL
+        AFTER base_product_id
+      `);
+          console.log("[product-migration] Columna portion_size agregada");
+        }
+        await connection.query(`
+      ALTER TABLE products
+      MODIFY COLUMN stock DECIMAL(12,3) NOT NULL DEFAULT 0,
+      MODIFY COLUMN min_stock DECIMAL(12,3) NOT NULL DEFAULT 0
+    `);
+        if (!await tableExists(connection, "product_recipes")) {
+          await connection.query(`
+        CREATE TABLE product_recipes (
+          id INT NOT NULL AUTO_INCREMENT,
+          product_id INT NOT NULL,
+          ingredient_product_id INT NOT NULL,
+          quantity DECIMAL(12,3) NOT NULL,
+          unit ENUM('unit','g','ml') NOT NULL DEFAULT 'g',
+          PRIMARY KEY (id),
+          KEY IDX_product_recipes_product (product_id),
+          KEY IDX_product_recipes_ingredient (ingredient_product_id),
+          CONSTRAINT FK_product_recipes_product
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+          CONSTRAINT FK_product_recipes_ingredient
+            FOREIGN KEY (ingredient_product_id) REFERENCES products(id)
+        ) ENGINE=InnoDB
+      `);
+          console.log("[product-migration] Tabla product_recipes creada");
+        }
+        if (!await columnExists(connection, "products", "scoop_count")) {
+          await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN scoop_count INT NULL
+        AFTER portion_size
+      `);
+          console.log("[product-migration] Columna scoop_count agregada");
+        }
+        if (!await tableExists(connection, "product_option_groups")) {
+          await connection.query(`
+        CREATE TABLE product_option_groups (
+          id INT NOT NULL AUTO_INCREMENT,
+          product_id INT NOT NULL,
+          name VARCHAR(100) NOT NULL,
+          kind ENUM('flavor','container') NOT NULL,
+          min_select INT NOT NULL DEFAULT 1,
+          max_select INT NOT NULL DEFAULT 1,
+          sort_order INT NOT NULL DEFAULT 0,
+          PRIMARY KEY (id),
+          KEY IDX_option_groups_product (product_id),
+          CONSTRAINT FK_option_groups_product
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+          console.log("[product-migration] Tabla product_option_groups creada");
+        }
+        if (!await tableExists(connection, "product_options")) {
+          await connection.query(`
+        CREATE TABLE product_options (
+          id INT NOT NULL AUTO_INCREMENT,
+          group_id INT NOT NULL,
+          name VARCHAR(100) NOT NULL,
+          ingredient_product_id INT NOT NULL,
+          quantity DECIMAL(12,3) NOT NULL,
+          unit ENUM('unit','g','ml') NOT NULL DEFAULT 'g',
+          PRIMARY KEY (id),
+          KEY IDX_product_options_group (group_id),
+          KEY IDX_product_options_ingredient (ingredient_product_id),
+          CONSTRAINT FK_product_options_group
+            FOREIGN KEY (group_id) REFERENCES product_option_groups(id) ON DELETE CASCADE,
+          CONSTRAINT FK_product_options_ingredient
+            FOREIGN KEY (ingredient_product_id) REFERENCES products(id)
+        ) ENGINE=InnoDB
+      `);
+          console.log("[product-migration] Tabla product_options creada");
+        }
+        if (await tableExists(connection, "sale_items")) {
+          if (!await columnExists(connection, "sale_items", "selected_options")) {
+            await connection.query(`
+          ALTER TABLE sale_items
+          ADD COLUMN selected_options JSON NULL
+          AFTER subtotal
+        `);
+            console.log("[product-migration] Columna sale_items.selected_options agregada");
+          }
+        }
+        if (await tableExists(connection, "inventory_movements")) {
+          await connection.query(`
+        ALTER TABLE inventory_movements
+        MODIFY COLUMN quantity DECIMAL(12,3) NOT NULL,
+        MODIFY COLUMN stock_before DECIMAL(12,3) NOT NULL,
+        MODIFY COLUMN stock_after DECIMAL(12,3) NOT NULL
+      `);
+        }
+        if (await tableExists(connection, "purchase_items")) {
+          await connection.query(`
+        ALTER TABLE purchase_items
+        MODIFY COLUMN quantity DECIMAL(12,3) NOT NULL
+      `);
+        }
+        if (await tableExists(connection, "products")) {
+          if (!await columnExists(connection, "products", "image_key")) {
+            await connection.query(`
+          ALTER TABLE products
+          ADD COLUMN image_key VARCHAR(500) NULL
+          AFTER description
+        `);
+            console.log("[product-migration] Columna image_key agregada");
+          }
+          if (!await columnExists(connection, "products", "visible_in_pos")) {
+            await connection.query(`
+          ALTER TABLE products
+          ADD COLUMN visible_in_pos TINYINT(1) NOT NULL DEFAULT 1
+          AFTER active
+        `);
+            await connection.query(`
+          UPDATE products SET visible_in_pos = 0 WHERE product_type = 'bulk'
+        `);
+            console.log("[product-migration] Columna products.visible_in_pos agregada");
+          }
+          if (!await columnExists(connection, "products", "variable_scoops")) {
+            await connection.query(`
+          ALTER TABLE products
+          ADD COLUMN variable_scoops TINYINT(1) NOT NULL DEFAULT 0
+          AFTER scoop_count
+        `);
+            console.log("[product-migration] Columna variable_scoops agregada");
+          }
+          if (!await columnExists(connection, "products", "scoop_prices")) {
+            await connection.query(`
+          ALTER TABLE products
+          ADD COLUMN scoop_prices JSON NULL
+          AFTER variable_scoops
+        `);
+            console.log("[product-migration] Columna scoop_prices agregada");
+          }
+        }
+        if (await tableExists(connection, "product_options")) {
+          if (!await columnExists(connection, "product_options", "unit_cost")) {
+            await connection.query(`
+          ALTER TABLE product_options
+          ADD COLUMN unit_cost DECIMAL(12,2) NOT NULL DEFAULT 0
+          AFTER unit
+        `);
+            await connection.query(`
+          UPDATE product_options po
+          INNER JOIN products p ON p.id = po.ingredient_product_id
+          SET po.unit_cost = ROUND(p.cost_price * po.quantity, 2)
+          WHERE po.unit_cost = 0 AND p.cost_price > 0
+        `);
+            console.log("[product-migration] Columna product_options.unit_cost agregada");
+          }
+          if (!await columnExists(connection, "product_options", "unit_price")) {
+            await connection.query(`
+          ALTER TABLE product_options
+          ADD COLUMN unit_price DECIMAL(12,2) NOT NULL DEFAULT 0
+          AFTER unit_cost
+        `);
+            console.log("[product-migration] Columna product_options.unit_price agregada");
+          }
+          if (!await columnIsNullable(connection, "product_options", "ingredient_product_id")) {
+            const [fkRows] = await connection.query(`SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
+           WHERE TABLE_SCHEMA = DATABASE()
+             AND TABLE_NAME = 'product_options'
+             AND COLUMN_NAME = 'ingredient_product_id'
+             AND REFERENCED_TABLE_NAME IS NOT NULL`);
+            for (const row of fkRows) {
+              await connection.query(`ALTER TABLE product_options DROP FOREIGN KEY \`${row.CONSTRAINT_NAME}\``);
+            }
+            await connection.query(`
+          ALTER TABLE product_options
+          MODIFY COLUMN ingredient_product_id INT NULL
+        `);
+            if (fkRows.length > 0) {
+              await connection.query(`
+            ALTER TABLE product_options
+            ADD CONSTRAINT FK_product_options_ingredient
+              FOREIGN KEY (ingredient_product_id) REFERENCES products(id)
+          `);
+            }
+            console.log("[product-migration] product_options.ingredient_product_id ahora es opcional");
+          }
+        }
+        if (await tableExists(connection, "product_option_groups")) {
+          await connection.query(`
+        ALTER TABLE product_option_groups
+        MODIFY COLUMN kind ENUM('flavor','container','addon') NOT NULL
+      `);
+        }
+        if (await columnExists(connection, "products", "product_type")) {
+          await connection.query(`
+        ALTER TABLE products
+        MODIFY COLUMN product_type ENUM('simple','bulk','portion','composite','prepared') NOT NULL DEFAULT 'simple'
+      `);
+          console.log("[product-migration] product_type incluye prepared");
+        }
+        if (!await columnExists(connection, "products", "recipe_batch_size")) {
+          await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN recipe_batch_size DECIMAL(12,3) NULL
+        AFTER portion_size
+      `);
+          console.log("[product-migration] Columna recipe_batch_size agregada");
+        }
+        if (await tableExists(connection, "inventory_movements")) {
+          if (await columnExists(connection, "inventory_movements", "type")) {
+            await connection.query(`
+          ALTER TABLE inventory_movements
+          MODIFY COLUMN type ENUM('sale','purchase','adjustment_in','adjustment_out','production') NOT NULL
+        `);
+            console.log("[product-migration] inventory_movements.type incluye production");
+          }
+        }
+        console.log("[product-migration] Esquema de productos actualizado");
+      } finally {
+        await connection.end();
+      }
+    }
+  }
+});
+
+// dist/database/supplier-migration.js
+var require_supplier_migration = __commonJS({
+  "dist/database/supplier-migration.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m[k];
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    }) : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    })();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.runSupplierMigration = runSupplierMigration;
+    var mysql = __importStar(require("mysql2/promise"));
+    async function columnExists(connection, table, column) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, column]);
+      return rows.length > 0;
+    }
+    async function runSupplierMigration() {
+      const connection = await mysql.createConnection({
+        host: process.env.DB_HOST ?? "localhost",
+        port: Number(process.env.DB_PORT ?? 3306),
+        user: process.env.DB_USERNAME ?? "root",
+        password: process.env.DB_PASSWORD ?? "",
+        database: process.env.DB_DATABASE ?? "pos_db"
+      });
+      try {
+        const [tables] = await connection.query(`SELECT 1 FROM information_schema.TABLES
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'suppliers'`);
+        if (!tables.length) {
+          console.log("[supplier-migration] Tabla suppliers no existe; omitiendo.");
+          return;
+        }
+        if (!await columnExists(connection, "suppliers", "nit")) {
+          await connection.query(`
+        ALTER TABLE suppliers
+        ADD COLUMN nit VARCHAR(20) NULL
+        AFTER name
+      `);
+          console.log("[supplier-migration] Columna nit agregada");
+        }
+        await connection.query(`
+      ALTER TABLE suppliers
+      MODIFY COLUMN name VARCHAR(150) NULL
+    `);
+        console.log("[supplier-migration] Esquema de proveedores actualizado");
+      } finally {
+        await connection.end();
+      }
+    }
+  }
+});
+
+// dist/database/table-migration.js
+var require_table_migration = __commonJS({
+  "dist/database/table-migration.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m[k];
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    }) : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    })();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.runTableMigration = runTableMigration;
+    var mysql = __importStar(require("mysql2/promise"));
+    async function createConnection() {
+      return mysql.createConnection({
+        host: process.env.DB_HOST ?? "localhost",
+        port: Number(process.env.DB_PORT ?? 3306),
+        user: process.env.DB_USERNAME ?? "root",
+        password: process.env.DB_PASSWORD ?? "",
+        database: process.env.DB_DATABASE ?? "pos_db"
+      });
+    }
+    async function tableExists(connection, table) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]);
+      return rows.length > 0;
+    }
+    async function indexExists(connection, table, indexName) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`, [table, indexName]);
+      return rows.length > 0;
+    }
+    async function runTableMigration() {
+      const connection = await createConnection();
+      try {
+        if (!await tableExists(connection, "restaurant_tables")) {
+          await connection.query(`
+        CREATE TABLE restaurant_tables (
+          id INT NOT NULL AUTO_INCREMENT,
+          store_id INT NOT NULL,
+          name VARCHAR(100) NOT NULL,
+          capacity INT NOT NULL DEFAULT 4,
+          active TINYINT(1) NOT NULL DEFAULT 1,
+          sort_order INT NOT NULL DEFAULT 0,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+            ON UPDATE CURRENT_TIMESTAMP(6),
+          PRIMARY KEY (id),
+          UNIQUE KEY UQ_restaurant_tables_store_name (store_id, name),
+          KEY IDX_restaurant_tables_store (store_id),
+          CONSTRAINT FK_restaurant_tables_store
+            FOREIGN KEY (store_id) REFERENCES stores(id)
+        ) ENGINE=InnoDB
+      `);
+          console.log("[table-migration] Tabla restaurant_tables creada");
+        }
+        if (!await tableExists(connection, "table_orders")) {
+          await connection.query(`
+        CREATE TABLE table_orders (
+          id INT NOT NULL AUTO_INCREMENT,
+          store_id INT NOT NULL,
+          table_id INT NOT NULL,
+          status ENUM('open','closed') NOT NULL DEFAULT 'open',
+          customer_id INT NULL,
+          notes TEXT NULL,
+          opened_by_user_id INT NOT NULL,
+          closed_by_user_id INT NULL,
+          sale_id INT NULL,
+          open_table_id INT GENERATED ALWAYS AS (
+            CASE WHEN status = 'open' THEN table_id ELSE NULL END
+          ) STORED,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+            ON UPDATE CURRENT_TIMESTAMP(6),
+          PRIMARY KEY (id),
+          UNIQUE KEY UQ_table_orders_open_table (store_id, open_table_id),
+          KEY IDX_table_orders_store (store_id),
+          KEY IDX_table_orders_table_status (table_id, status),
+          KEY IDX_table_orders_sale (sale_id),
+          CONSTRAINT FK_table_orders_store
+            FOREIGN KEY (store_id) REFERENCES stores(id),
+          CONSTRAINT FK_table_orders_table
+            FOREIGN KEY (table_id) REFERENCES restaurant_tables(id),
+          CONSTRAINT FK_table_orders_customer
+            FOREIGN KEY (customer_id) REFERENCES customers(id),
+          CONSTRAINT FK_table_orders_opened_by
+            FOREIGN KEY (opened_by_user_id) REFERENCES users(id),
+          CONSTRAINT FK_table_orders_closed_by
+            FOREIGN KEY (closed_by_user_id) REFERENCES users(id),
+          CONSTRAINT FK_table_orders_sale
+            FOREIGN KEY (sale_id) REFERENCES sales(id)
+        ) ENGINE=InnoDB
+      `);
+          console.log("[table-migration] Tabla table_orders creada");
+        } else if (!await indexExists(connection, "table_orders", "IDX_table_orders_store_status")) {
+          await connection.query(`
+        ALTER TABLE table_orders
+        ADD KEY IDX_table_orders_store_status (store_id, status)
+      `);
+          console.log("[table-migration] \xCDndice IDX_table_orders_store_status agregado");
+        }
+        if (!await tableExists(connection, "table_order_items")) {
+          await connection.query(`
+        CREATE TABLE table_order_items (
+          id INT NOT NULL AUTO_INCREMENT,
+          order_id INT NOT NULL,
+          product_id INT NOT NULL,
+          product_name VARCHAR(250) NOT NULL,
+          quantity INT NOT NULL,
+          unit_price DECIMAL(12,2) NOT NULL,
+          selected_option_ids JSON NULL,
+          option_label VARCHAR(250) NULL,
+          portion_scoop_count INT NULL,
+          notes TEXT NULL,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+            ON UPDATE CURRENT_TIMESTAMP(6),
+          PRIMARY KEY (id),
+          KEY IDX_table_order_items_order (order_id),
+          KEY IDX_table_order_items_product (product_id),
+          CONSTRAINT FK_table_order_items_order
+            FOREIGN KEY (order_id) REFERENCES table_orders(id) ON DELETE CASCADE,
+          CONSTRAINT FK_table_order_items_product
+            FOREIGN KEY (product_id) REFERENCES products(id)
+        ) ENGINE=InnoDB
+      `);
+          console.log("[table-migration] Tabla table_order_items creada");
+        }
+        console.log("[table-migration] Esquema de mesas actualizado");
+      } finally {
+        await connection.end();
+      }
+    }
+  }
+});
+
+// dist/database/sale-migration.js
+var require_sale_migration = __commonJS({
+  "dist/database/sale-migration.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m[k];
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    }) : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    })();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.runSaleMigration = runSaleMigration;
+    var mysql = __importStar(require("mysql2/promise"));
+    async function createConnection() {
+      return mysql.createConnection({
+        host: process.env.DB_HOST ?? "localhost",
+        port: Number(process.env.DB_PORT ?? 3306),
+        user: process.env.DB_USERNAME ?? "root",
+        password: process.env.DB_PASSWORD ?? "",
+        database: process.env.DB_DATABASE ?? "pos_db"
+      });
+    }
+    async function tableExists(connection, table) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]);
+      return rows.length > 0;
+    }
+    async function columnExists(connection, table, column) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, column]);
+      return rows.length > 0;
+    }
+    async function enumHasValue(connection, table, column, value) {
+      const [rows] = await connection.query(`SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, column]);
+      const columnType = String(rows[0]?.COLUMN_TYPE ?? "");
+      return columnType.includes(`'${value}'`);
+    }
+    async function runSaleMigration() {
+      const connection = await createConnection();
+      try {
+        if (!await tableExists(connection, "sales")) {
+          console.log("[sale-migration] Tabla sales no existe a\xFAn; se omite");
+          return;
+        }
+        if (!await columnExists(connection, "sales", "status")) {
+          await connection.query(`
+        ALTER TABLE sales
+        ADD COLUMN status ENUM('completed','reversed') NOT NULL DEFAULT 'completed'
+        AFTER payment_method
+      `);
+          console.log("[sale-migration] Columna sales.status agregada");
+        }
+        if (!await columnExists(connection, "sales", "reversed_at")) {
+          await connection.query(`
+        ALTER TABLE sales
+        ADD COLUMN reversed_at DATETIME NULL AFTER created_at
+      `);
+          console.log("[sale-migration] Columna sales.reversed_at agregada");
+        }
+        if (!await columnExists(connection, "sales", "reversed_by_user_id")) {
+          await connection.query(`
+        ALTER TABLE sales
+        ADD COLUMN reversed_by_user_id INT NULL AFTER reversed_at
+      `);
+          console.log("[sale-migration] Columna sales.reversed_by_user_id agregada");
+        }
+        if (!await columnExists(connection, "sales", "reverse_reason")) {
+          await connection.query(`
+        ALTER TABLE sales
+        ADD COLUMN reverse_reason VARCHAR(500) NULL AFTER reversed_by_user_id
+      `);
+          console.log("[sale-migration] Columna sales.reverse_reason agregada");
+        }
+        if (await tableExists(connection, "sale_items")) {
+          if (!await columnExists(connection, "sale_items", "portion_scoop_count")) {
+            await connection.query(`
+          ALTER TABLE sale_items
+          ADD COLUMN portion_scoop_count INT NULL AFTER selected_options
+        `);
+            console.log("[sale-migration] Columna sale_items.portion_scoop_count agregada");
+          }
+        }
+        if (await tableExists(connection, "inventory_movements")) {
+          if (await columnExists(connection, "inventory_movements", "type") && !await enumHasValue(connection, "inventory_movements", "type", "sale_reversal")) {
+            await connection.query(`
+          ALTER TABLE inventory_movements
+          MODIFY COLUMN type ENUM(
+            'sale','purchase','adjustment_in','adjustment_out','production','sale_reversal'
+          ) NOT NULL
+        `);
+            console.log("[sale-migration] inventory_movements.type incluye sale_reversal");
+          }
+        }
+        console.log("[sale-migration] Esquema de ventas actualizado");
+      } finally {
+        await connection.end();
+      }
+    }
+  }
+});
+
+// dist/database/migration-bootstrap.js
+var require_migration_bootstrap = __commonJS({
+  "dist/database/migration-bootstrap.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.ensureDatabaseMigrations = ensureDatabaseMigrations;
+    var store_migration_1 = require_store_migration();
+    var product_migration_1 = require_product_migration();
+    var supplier_migration_1 = require_supplier_migration();
+    var table_migration_1 = require_table_migration();
+    var sale_migration_1 = require_sale_migration();
+    var migrationPromise = null;
+    function ensureDatabaseMigrations() {
+      if (!migrationPromise) {
+        migrationPromise = (async () => {
+          await (0, store_migration_1.runStoreMigration)();
+          await (0, product_migration_1.runProductMigration)();
+          await (0, supplier_migration_1.runSupplierMigration)();
+          await (0, table_migration_1.runTableMigration)();
+          await (0, sale_migration_1.runSaleMigration)();
+          console.log("[migration] Esquema verificado");
+        })().catch((err) => {
+          migrationPromise = null;
+          console.error("[migration] Error aplicando migraciones:", err);
+          throw err;
+        });
+      }
+      return migrationPromise;
+    }
+  }
+});
+
 // dist/common/enums/index.js
 var require_enums = __commonJS({
   "dist/common/enums/index.js"(exports2) {
@@ -27318,6 +28215,7 @@ exports.handler = handler;
 var dotenv_1 = require("dotenv");
 var express_1 = __importDefault(require("express"));
 var timezone_util_1 = require_timezone_util();
+var migration_bootstrap_1 = require_migration_bootstrap();
 var app_bootstrap_1 = require_app_bootstrap();
 (0, dotenv_1.config)();
 (0, timezone_util_1.applyProcessTimezone)();
@@ -27343,6 +28241,7 @@ async function bootstrap() {
     throw new Error("DB_HOST no est\xE1 configurado en Vercel (Environment Variables)");
   }
   console.log(`[vercel] Iniciando NestJS \u2014 DB: ${dbHost}:${process.env.DB_PORT ?? 3306}`);
+  await (0, migration_bootstrap_1.ensureDatabaseMigrations)();
   const app = (0, express_1.default)();
   const nestApp = await (0, app_bootstrap_1.createNestApp)(app);
   await nestApp.init();

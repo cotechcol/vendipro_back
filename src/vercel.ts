@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import express from 'express';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { applyProcessTimezone } from './common/utils/timezone.util';
+import { ensureDatabaseMigrations } from './database/migration-bootstrap';
 import { createNestApp } from './app-bootstrap';
 
 config();
@@ -34,6 +35,8 @@ async function bootstrap(): Promise<Express> {
   }
 
   console.log(`[vercel] Iniciando NestJS — DB: ${dbHost}:${process.env.DB_PORT ?? 3306}`);
+
+  await ensureDatabaseMigrations();
 
   const app = express();
   const nestApp = await createNestApp(app);
