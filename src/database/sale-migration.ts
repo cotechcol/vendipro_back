@@ -47,6 +47,19 @@ async function enumHasValue(
   return columnType.includes(`'${value}'`);
 }
 
+async function indexExists(
+  connection: mysql.Connection,
+  table: string,
+  indexName: string,
+): Promise<boolean> {
+  const [rows] = await connection.query<mysql.RowDataPacket[]>(
+    `SELECT 1 FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+    [table, indexName],
+  );
+  return rows.length > 0;
+}
+
 export async function runSaleMigration(): Promise<void> {
   const connection = await createConnection();
 
@@ -112,6 +125,17 @@ export async function runSaleMigration(): Promise<void> {
         `);
         console.log('[sale-migration] inventory_movements.type incluye sale_reversal');
       }
+    }
+
+    if (
+      await tableExists(connection, 'sales')
+      && !(await indexExists(connection, 'sales', 'IDX_sales_store_created_status'))
+    ) {
+      await connection.query(`
+        CREATE INDEX IDX_sales_store_created_status
+        ON sales (store_id, created_at, status)
+      `);
+      console.log('[sale-migration] Índice IDX_sales_store_created_status agregado');
     }
 
     console.log('[sale-migration] Esquema de ventas actualizado');

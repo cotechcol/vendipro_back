@@ -68,14 +68,10 @@ export class ProductsService {
   ) {
     const storeId = this.scopeStore(ctx);
     const { page = 1, limit = 10, search, categoryId, active, productType } = query;
+    // Listado liviano: sin recipe/opciones (el detalle se carga al editar)
     const qb = this.repo.createQueryBuilder('p')
       .leftJoinAndSelect('p.category', 'category')
       .leftJoinAndSelect('p.baseProduct', 'baseProduct')
-      .leftJoinAndSelect('p.recipe', 'recipe')
-      .leftJoinAndSelect('recipe.ingredient', 'ingredient')
-      .leftJoinAndSelect('p.optionGroups', 'optionGroups')
-      .leftJoinAndSelect('optionGroups.options', 'options')
-      .leftJoinAndSelect('options.ingredient', 'optionIngredient')
       .where('p.storeId = :storeId', { storeId })
       .orderBy('p.name', 'ASC')
       .skip((page - 1) * limit)
@@ -87,12 +83,14 @@ export class ProductsService {
     if (productType) qb.andWhere('p.productType = :productType', { productType });
 
     const [rows, total] = await qb.getManyAndCount();
+
+    // Sellable sync + sin firmar imágenes en listado (acelera Hostinger/Vercel)
     const data = await Promise.all(
-      rows.map(async (p) => {
+      rows.map((p) => {
         const sellable = [ProductType.BULK, ProductType.PREPARED].includes(p.productType)
           ? undefined
-          : await getSellableUnits(this.repo.manager, p);
-        return this.enrichProduct(p, sellable);
+          : getSellableUnitsSync(p);
+        return this.enrichProduct(p, sellable, { skipImageUrl: true });
       }),
     );
 
@@ -130,9 +128,10 @@ export class ProductsService {
 
     await this.hydratePosCatalog(products);
 
-    // Imágenes firmadas en paralelo al final (no bloquean el cálculo de stock)
     return Promise.all(
-      products.map((p) => this.enrichProduct(p, getSellableUnitsSync(p))),
+      products.map((p) =>
+        this.enrichProduct(p, getSellableUnitsSync(p), { skipImageUrl: true }),
+      ),
     );
   }
 

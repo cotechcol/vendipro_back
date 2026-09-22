@@ -72,12 +72,13 @@ import { TableOrderItem } from './tables/entities/table-order-item.entity';
         retryDelay: onVercel ? 500 : 2000,
         extra: {
           waitForConnections: true,
-          connectionLimit: onVercel ? 3 : 5,
-          maxIdle: onVercel ? 0 : 5,
-          idleTimeout: onVercel ? 1_000 : 60_000,
+          // Reutilizar 1 conexión en instancias calientes de Vercel (Hostinger es lento al conectar)
+          connectionLimit: onVercel ? 4 : 8,
+          maxIdle: onVercel ? 2 : 5,
+          idleTimeout: onVercel ? 30_000 : 60_000,
           enableKeepAlive: true,
           keepAliveInitialDelay: 0,
-          connectTimeout: onVercel ? 5_000 : 10_000,
+          connectTimeout: onVercel ? 8_000 : 10_000,
         },
       };
       },

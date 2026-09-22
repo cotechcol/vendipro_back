@@ -25,15 +25,13 @@ export class ReportsService {
     const { start, end } = todayRangeColombia();
     const storeId = reportStoreId(ctx);
 
-    const qb = this.saleRepo.createQueryBuilder('s')
+    const summaryQb = this.saleRepo.createQueryBuilder('s')
+      .select('COUNT(s.id)', 'totalSales')
+      .addSelect('COALESCE(SUM(s.total), 0)', 'revenue')
+      .addSelect('COALESCE(SUM(s.profit), 0)', 'profit')
       .where('s.createdAt BETWEEN :start AND :end', { start, end })
       .andWhere('s.status = :status', { status: SaleStatus.COMPLETED });
-    if (storeId) qb.andWhere('s.storeId = :storeId', { storeId });
-    const salesToday = await qb.getMany();
-
-    const totalSales = salesToday.length;
-    const revenue = salesToday.reduce((s, v) => s + Number(v.total), 0);
-    const profit = salesToday.reduce((s, v) => s + Number(v.profit), 0);
+    if (storeId) summaryQb.andWhere('s.storeId = :storeId', { storeId });
 
     const topQb = this.saleItemRepo.createQueryBuilder('si')
       .innerJoin('si.sale', 's')
@@ -43,11 +41,6 @@ export class ReportsService {
       .where('s.createdAt BETWEEN :start AND :end', { start, end })
       .andWhere('s.status = :status', { status: SaleStatus.COMPLETED });
     if (storeId) topQb.andWhere('s.storeId = :storeId', { storeId });
-    const topProducts = await topQb
-      .groupBy('si.productName')
-      .orderBy('quantity', 'DESC')
-      .limit(5)
-      .getRawMany();
 
     const lowQb = this.productRepo.createQueryBuilder('p')
       .where('p.active = true')
@@ -56,12 +49,17 @@ export class ReportsService {
       })
       .andWhere('p.stock <= p.minStock');
     if (storeId) lowQb.andWhere('p.storeId = :storeId', { storeId });
-    const lowStock = await lowQb.getCount();
+
+    const [summary, topProducts, lowStock] = await Promise.all([
+      summaryQb.getRawOne<{ totalSales: string; revenue: string; profit: string }>(),
+      topQb.groupBy('si.productName').orderBy('quantity', 'DESC').limit(5).getRawMany(),
+      lowQb.getCount(),
+    ]);
 
     return {
-      totalSales,
-      revenue: Number(revenue.toFixed(2)),
-      profit: Number(profit.toFixed(2)),
+      totalSales: Number(summary?.totalSales ?? 0),
+      revenue: Number(Number(summary?.revenue ?? 0).toFixed(2)),
+      profit: Number(Number(summary?.profit ?? 0).toFixed(2)),
       topProducts,
       lowStockCount: lowStock,
     };

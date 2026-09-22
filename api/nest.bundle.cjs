@@ -825,6 +825,11 @@ var require_sale_migration = __commonJS({
       const columnType = String(rows[0]?.COLUMN_TYPE ?? "");
       return columnType.includes(`'${value}'`);
     }
+    async function indexExists(connection, table, indexName) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`, [table, indexName]);
+      return rows.length > 0;
+    }
     async function runSaleMigration() {
       const connection = await createConnection();
       try {
@@ -881,6 +886,13 @@ var require_sale_migration = __commonJS({
             console.log("[sale-migration] inventory_movements.type incluye sale_reversal");
           }
         }
+        if (await tableExists(connection, "sales") && !await indexExists(connection, "sales", "IDX_sales_store_created_status")) {
+          await connection.query(`
+        CREATE INDEX IDX_sales_store_created_status
+        ON sales (store_id, created_at, status)
+      `);
+          console.log("[sale-migration] \xCDndice IDX_sales_store_created_status agregado");
+        }
         console.log("[sale-migration] Esquema de ventas actualizado");
       } finally {
         await connection.end();
@@ -893,23 +905,121 @@ var require_sale_migration = __commonJS({
 var require_migration_bootstrap = __commonJS({
   "dist/database/migration-bootstrap.js"(exports2) {
     "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m[k];
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    }) : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.SCHEMA_VERSION = void 0;
     exports2.ensureDatabaseMigrations = ensureDatabaseMigrations;
+    var mysql = __importStar(require("mysql2/promise"));
     var store_migration_1 = require_store_migration();
     var product_migration_1 = require_product_migration();
     var supplier_migration_1 = require_supplier_migration();
     var table_migration_1 = require_table_migration();
     var sale_migration_1 = require_sale_migration();
+    exports2.SCHEMA_VERSION = 7;
     var migrationPromise = null;
+    async function createConnection() {
+      return mysql.createConnection({
+        host: process.env.DB_HOST ?? "localhost",
+        port: Number(process.env.DB_PORT ?? 3306),
+        user: process.env.DB_USERNAME ?? "root",
+        password: process.env.DB_PASSWORD ?? "",
+        database: process.env.DB_DATABASE ?? "pos_db",
+        connectTimeout: 8e3
+      });
+    }
+    async function isSchemaCurrent() {
+      const connection = await createConnection();
+      try {
+        await connection.query(`
+      CREATE TABLE IF NOT EXISTS _schema_meta (
+        id INT NOT NULL PRIMARY KEY,
+        version INT NOT NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+          ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+        const [rows] = await connection.query("SELECT version FROM _schema_meta WHERE id = 1 LIMIT 1");
+        return Number(rows[0]?.version ?? 0) >= exports2.SCHEMA_VERSION;
+      } finally {
+        await connection.end();
+      }
+    }
+    async function markSchemaCurrent() {
+      const connection = await createConnection();
+      try {
+        await connection.query(`
+      CREATE TABLE IF NOT EXISTS _schema_meta (
+        id INT NOT NULL PRIMARY KEY,
+        version INT NOT NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+          ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+        await connection.query(`INSERT INTO _schema_meta (id, version) VALUES (1, ?)
+       ON DUPLICATE KEY UPDATE version = VALUES(version)`, [exports2.SCHEMA_VERSION]);
+      } finally {
+        await connection.end();
+      }
+    }
     function ensureDatabaseMigrations() {
       if (!migrationPromise) {
         migrationPromise = (async () => {
+          const started = Date.now();
+          try {
+            if (await isSchemaCurrent()) {
+              console.log(`[migration] Esquema al d\xEDa (v${exports2.SCHEMA_VERSION}) en ${Date.now() - started}ms`);
+              return;
+            }
+          } catch (err) {
+            console.warn("[migration] No se pudo leer _schema_meta, se aplican migraciones:", err);
+          }
           await (0, store_migration_1.runStoreMigration)();
           await (0, product_migration_1.runProductMigration)();
           await (0, supplier_migration_1.runSupplierMigration)();
           await (0, table_migration_1.runTableMigration)();
           await (0, sale_migration_1.runSaleMigration)();
-          console.log("[migration] Esquema verificado");
+          try {
+            await markSchemaCurrent();
+          } catch (err) {
+            console.warn("[migration] No se pudo guardar versi\xF3n de esquema:", err);
+          }
+          console.log(`[migration] Esquema verificado (v${exports2.SCHEMA_VERSION}) en ${Date.now() - started}ms`);
         })().catch((err) => {
           migrationPromise = null;
           console.error("[migration] Error aplicando migraciones:", err);
@@ -4918,7 +5028,7 @@ var require_products_service = __commonJS({
       async findAll(query, ctx) {
         const storeId = this.scopeStore(ctx);
         const { page = 1, limit = 10, search, categoryId, active, productType } = query;
-        const qb = this.repo.createQueryBuilder("p").leftJoinAndSelect("p.category", "category").leftJoinAndSelect("p.baseProduct", "baseProduct").leftJoinAndSelect("p.recipe", "recipe").leftJoinAndSelect("recipe.ingredient", "ingredient").leftJoinAndSelect("p.optionGroups", "optionGroups").leftJoinAndSelect("optionGroups.options", "options").leftJoinAndSelect("options.ingredient", "optionIngredient").where("p.storeId = :storeId", { storeId }).orderBy("p.name", "ASC").skip((page - 1) * limit).take(limit);
+        const qb = this.repo.createQueryBuilder("p").leftJoinAndSelect("p.category", "category").leftJoinAndSelect("p.baseProduct", "baseProduct").where("p.storeId = :storeId", { storeId }).orderBy("p.name", "ASC").skip((page - 1) * limit).take(limit);
         if (search)
           qb.andWhere("(p.name LIKE :s OR p.sku LIKE :s)", { s: `%${search}%` });
         if (categoryId)
@@ -4928,9 +5038,9 @@ var require_products_service = __commonJS({
         if (productType)
           qb.andWhere("p.productType = :productType", { productType });
         const [rows, total] = await qb.getManyAndCount();
-        const data = await Promise.all(rows.map(async (p) => {
-          const sellable = [enums_1.ProductType.BULK, enums_1.ProductType.PREPARED].includes(p.productType) ? void 0 : await (0, product_stock_util_1.getSellableUnits)(this.repo.manager, p);
-          return this.enrichProduct(p, sellable);
+        const data = await Promise.all(rows.map((p) => {
+          const sellable = [enums_1.ProductType.BULK, enums_1.ProductType.PREPARED].includes(p.productType) ? void 0 : (0, product_stock_util_1.getSellableUnitsSync)(p);
+          return this.enrichProduct(p, sellable, { skipImageUrl: true });
         }));
         return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
       }
@@ -4954,7 +5064,7 @@ var require_products_service = __commonJS({
         if (!products.length)
           return [];
         await this.hydratePosCatalog(products);
-        return Promise.all(products.map((p) => this.enrichProduct(p, (0, product_stock_util_1.getSellableUnitsSync)(p))));
+        return Promise.all(products.map((p) => this.enrichProduct(p, (0, product_stock_util_1.getSellableUnitsSync)(p), { skipImageUrl: true })));
       }
       async hydratePosCatalog(products) {
         const ids = products.map((p) => p.id);
@@ -26445,27 +26555,26 @@ var require_reports_service = __commonJS({
       async getDashboard(ctx) {
         const { start, end } = (0, date_util_1.todayRangeColombia)();
         const storeId = (0, store_context_util_1.reportStoreId)(ctx);
-        const qb = this.saleRepo.createQueryBuilder("s").where("s.createdAt BETWEEN :start AND :end", { start, end }).andWhere("s.status = :status", { status: enums_1.SaleStatus.COMPLETED });
+        const summaryQb = this.saleRepo.createQueryBuilder("s").select("COUNT(s.id)", "totalSales").addSelect("COALESCE(SUM(s.total), 0)", "revenue").addSelect("COALESCE(SUM(s.profit), 0)", "profit").where("s.createdAt BETWEEN :start AND :end", { start, end }).andWhere("s.status = :status", { status: enums_1.SaleStatus.COMPLETED });
         if (storeId)
-          qb.andWhere("s.storeId = :storeId", { storeId });
-        const salesToday = await qb.getMany();
-        const totalSales = salesToday.length;
-        const revenue = salesToday.reduce((s, v) => s + Number(v.total), 0);
-        const profit = salesToday.reduce((s, v) => s + Number(v.profit), 0);
+          summaryQb.andWhere("s.storeId = :storeId", { storeId });
         const topQb = this.saleItemRepo.createQueryBuilder("si").innerJoin("si.sale", "s").select("si.productName", "name").addSelect("SUM(si.quantity)", "quantity").addSelect("SUM(si.subtotal)", "revenue").where("s.createdAt BETWEEN :start AND :end", { start, end }).andWhere("s.status = :status", { status: enums_1.SaleStatus.COMPLETED });
         if (storeId)
           topQb.andWhere("s.storeId = :storeId", { storeId });
-        const topProducts = await topQb.groupBy("si.productName").orderBy("quantity", "DESC").limit(5).getRawMany();
         const lowQb = this.productRepo.createQueryBuilder("p").where("p.active = true").andWhere("p.productType IN (:...types)", {
           types: [enums_1.ProductType.SIMPLE, enums_1.ProductType.BULK, enums_1.ProductType.PREPARED]
         }).andWhere("p.stock <= p.minStock");
         if (storeId)
           lowQb.andWhere("p.storeId = :storeId", { storeId });
-        const lowStock = await lowQb.getCount();
+        const [summary, topProducts, lowStock] = await Promise.all([
+          summaryQb.getRawOne(),
+          topQb.groupBy("si.productName").orderBy("quantity", "DESC").limit(5).getRawMany(),
+          lowQb.getCount()
+        ]);
         return {
-          totalSales,
-          revenue: Number(revenue.toFixed(2)),
-          profit: Number(profit.toFixed(2)),
+          totalSales: Number(summary?.totalSales ?? 0),
+          revenue: Number(Number(summary?.revenue ?? 0).toFixed(2)),
+          profit: Number(Number(summary?.profit ?? 0).toFixed(2)),
           topProducts,
           lowStockCount: lowStock
         };
@@ -28176,12 +28285,12 @@ var require_app_module = __commonJS({
                 retryDelay: onVercel ? 500 : 2e3,
                 extra: {
                   waitForConnections: true,
-                  connectionLimit: onVercel ? 3 : 5,
-                  maxIdle: onVercel ? 0 : 5,
-                  idleTimeout: onVercel ? 1e3 : 6e4,
+                  connectionLimit: onVercel ? 4 : 8,
+                  maxIdle: onVercel ? 2 : 5,
+                  idleTimeout: onVercel ? 3e4 : 6e4,
                   enableKeepAlive: true,
                   keepAliveInitialDelay: 0,
-                  connectTimeout: onVercel ? 5e3 : 1e4
+                  connectTimeout: onVercel ? 8e3 : 1e4
                 }
               };
             }
