@@ -43,16 +43,19 @@ export class ProductsService {
     options?: { skipImageUrl?: boolean },
   ) {
     const { imageKey, ...rest } = product;
+    const hasImage = Boolean(imageKey);
     const enriched: Record<string, unknown> = {
       ...rest,
+      hasImage,
       sellableUnits: sellableUnits ?? undefined,
       lowStock: isLowStock(product),
     };
     if (!options?.skipImageUrl && imageKey && this.storage.isConfigured()) {
       try {
         enriched.imageUrl = await this.storage.getObjectUrl(imageKey);
-      } catch {
-        // No bloquear listados si falla Supabase Storage
+      } catch (err) {
+        // Listados no fallan; el front puede pedir /image-url con hasImage
+        console.warn(`[products] No se pudo firmar imagen ${imageKey}:`, err);
       }
     }
     return enriched;
@@ -84,12 +87,14 @@ export class ProductsService {
 
     const [rows, total] = await qb.getManyAndCount();
 
+    // Listado: hasImage ya; imageUrl en segundo plano (no bloquear si firmar es lento)
     const data = await Promise.all(
       rows.map((p) => {
         const sellable = [ProductType.BULK, ProductType.PREPARED].includes(p.productType)
           ? undefined
           : getSellableUnitsSync(p);
-        return this.enrichProduct(p, sellable);
+        // skipImageUrl: el front pide /image-url con hasImage (evita timeout Vercel)
+        return this.enrichProduct(p, sellable, { skipImageUrl: true });
       }),
     );
 
@@ -128,7 +133,10 @@ export class ProductsService {
     await this.hydratePosCatalog(products);
 
     return Promise.all(
-      products.map((p) => this.enrichProduct(p, getSellableUnitsSync(p))),
+      products.map((p) =>
+        // Catálogo POS: hasImage sin firmar N URLs (timeout Vercel). Front carga /image-url.
+        this.enrichProduct(p, getSellableUnitsSync(p), { skipImageUrl: true }),
+      ),
     );
   }
 
