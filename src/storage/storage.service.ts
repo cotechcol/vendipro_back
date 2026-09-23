@@ -26,6 +26,8 @@ export class StorageService {
   private client: S3Client | null = null;
   private bucket = 'imagenes';
   private configured = false;
+  /** Base pública: https://xxx.storage.supabase.co/storage/v1/object/public/imagenes */
+  private publicBaseUrl: string | null = null;
 
   constructor(private config: ConfigService) {
     const endpoint = config.get<string>('SUPABASE_S3_ENDPOINT')?.trim();
@@ -33,6 +35,12 @@ export class StorageService {
     const secretAccessKey = config.get<string>('SUPABASE_S3_SECRET_ACCESS_KEY')?.trim();
     const region = config.get<string>('SUPABASE_S3_REGION')?.trim() ?? 'us-east-1';
     this.bucket = config.get<string>('SUPABASE_STORAGE_BUCKET')?.trim() ?? 'imagenes';
+
+    const explicitPublic = config.get<string>('SUPABASE_PUBLIC_URL')?.trim();
+    if (explicitPublic) {
+      this.publicBaseUrl = explicitPublic.replace(/\/$/, '');
+    }
+    // Si no hay SUPABASE_PUBLIC_URL, se usan URLs firmadas (bucket privado OK)
 
     if (endpoint && accessKeyId && secretAccessKey) {
       this.client = new S3Client({
@@ -44,7 +52,11 @@ export class StorageService {
         responseChecksumValidation: 'WHEN_REQUIRED',
       });
       this.configured = true;
-      this.logger.log(`Storage S3 listo (bucket: ${this.bucket}, region: ${region})`);
+      this.logger.log(
+        `Storage S3 listo (bucket: ${this.bucket}, region: ${region}`
+        + (this.publicBaseUrl ? ', URL pública activa' : '')
+        + ')',
+      );
     } else {
       this.logger.warn('Supabase S3 no configurado — revisa SUPABASE_S3_* en .env / Vercel');
     }
@@ -114,6 +126,22 @@ export class StorageService {
     }
 
     return key;
+  }
+
+  /** URL pública instantánea (bucket público). Null si no hay base configurada. */
+  getPublicUrl(key: string): string | null {
+    if (!key || !this.publicBaseUrl) return null;
+    return `${this.publicBaseUrl}/${key.replace(/^\//, '')}`;
+  }
+
+  /**
+   * URL para mostrar en catálogo/POS.
+   * Prefiere pública (sin firmar) para listados rápidos; si no, firma S3.
+   */
+  async getObjectUrl(key: string, expiresIn = 3600 * 12): Promise<string> {
+    const publicUrl = this.getPublicUrl(key);
+    if (publicUrl) return publicUrl;
+    return this.getSignedUrl(key, expiresIn);
   }
 
   async getSignedUrl(key: string, expiresIn = 3600): Promise<string> {

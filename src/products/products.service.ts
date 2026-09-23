@@ -50,7 +50,7 @@ export class ProductsService {
     };
     if (!options?.skipImageUrl && imageKey && this.storage.isConfigured()) {
       try {
-        enriched.imageUrl = await this.storage.getSignedUrl(imageKey);
+        enriched.imageUrl = await this.storage.getObjectUrl(imageKey);
       } catch {
         // No bloquear listados si falla Supabase Storage
       }
@@ -84,13 +84,12 @@ export class ProductsService {
 
     const [rows, total] = await qb.getManyAndCount();
 
-    // Sellable sync + sin firmar imágenes en listado (acelera Hostinger/Vercel)
     const data = await Promise.all(
       rows.map((p) => {
         const sellable = [ProductType.BULK, ProductType.PREPARED].includes(p.productType)
           ? undefined
           : getSellableUnitsSync(p);
-        return this.enrichProduct(p, sellable, { skipImageUrl: true });
+        return this.enrichProduct(p, sellable);
       }),
     );
 
@@ -129,9 +128,7 @@ export class ProductsService {
     await this.hydratePosCatalog(products);
 
     return Promise.all(
-      products.map((p) =>
-        this.enrichProduct(p, getSellableUnitsSync(p), { skipImageUrl: true }),
-      ),
+      products.map((p) => this.enrichProduct(p, getSellableUnitsSync(p))),
     );
   }
 
@@ -751,7 +748,7 @@ export class ProductsService {
       await this.storage.deleteObject(previousKey);
     }
 
-    const imageUrl = await this.storage.getSignedUrl(imageKey);
+    const imageUrl = await this.storage.getObjectUrl(imageKey);
     return { imageUrl };
   }
 
@@ -764,7 +761,7 @@ export class ProductsService {
     if (!product.imageKey) {
       throw new NotFoundException('Este producto no tiene imagen');
     }
-    const imageUrl = await this.storage.getSignedUrl(product.imageKey);
+    const imageUrl = await this.storage.getObjectUrl(product.imageKey);
     return { imageUrl };
   }
 
