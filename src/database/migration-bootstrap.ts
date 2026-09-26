@@ -13,6 +13,32 @@ export const SCHEMA_VERSION = 7;
 
 let migrationPromise: Promise<void> | null = null;
 
+export function isTooManyConnections(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current);
+    const e = current as {
+      code?: string;
+      errno?: number;
+      message?: string;
+      driverError?: unknown;
+      cause?: unknown;
+    };
+    if (
+      e.code === 'ER_TOO_MANY_USER_CONNECTIONS'
+      || e.code === 'ER_CON_COUNT_ERROR'
+      || e.errno === 1203
+      || e.errno === 1040
+      || (typeof e.message === 'string' && e.message.includes('max_user_connections'))
+    ) {
+      return true;
+    }
+    current = e.driverError ?? e.cause;
+  }
+  return false;
+}
+
 async function createConnection(): Promise<mysql.Connection> {
   return mysql.createConnection({
     host: process.env.DB_HOST ?? 'localhost',
@@ -76,6 +102,8 @@ export function ensureDatabaseMigrations(): Promise<void> {
           return;
         }
       } catch (err) {
+        // Si Hostinger ya rechazó la conexión, abrir 5 migraciones más empeora el corte.
+        if (isTooManyConnections(err)) throw err;
         console.warn('[migration] No se pudo leer _schema_meta, se aplican migraciones:', err);
       }
 

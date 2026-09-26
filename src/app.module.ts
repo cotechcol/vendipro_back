@@ -68,15 +68,18 @@ import { TableOrderItem } from './tables/entities/table-order-item.entity';
         synchronize: false,
         timezone: 'Z',
         logging: process.env.NODE_ENV === 'production' ? ['error'] : true,
-        retryAttempts: onVercel ? 1 : 3,
-        retryDelay: onVercel ? 500 : 2000,
+        // Hostinger limita max_user_connections. En Vercel cada instancia es un proceso:
+        // 1 conexión y se suelta al quedar idle (si la función se congela, MySQL la cierra solo).
+        poolSize: onVercel ? 1 : 8,
+        retryAttempts: onVercel ? 0 : 3,
+        retryDelay: onVercel ? 0 : 2000,
         extra: {
           waitForConnections: true,
-          // Reutilizar 1 conexión en instancias calientes de Vercel (Hostinger es lento al conectar)
-          connectionLimit: onVercel ? 4 : 8,
-          maxIdle: onVercel ? 2 : 5,
-          idleTimeout: onVercel ? 30_000 : 60_000,
-          enableKeepAlive: true,
+          connectionLimit: onVercel ? 1 : 8,
+          maxIdle: onVercel ? 1 : 5,
+          idleTimeout: onVercel ? 8_000 : 60_000,
+          queueLimit: 0,
+          enableKeepAlive: !onVercel,
           keepAliveInitialDelay: 0,
           connectTimeout: onVercel ? 8_000 : 10_000,
         },

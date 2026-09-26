@@ -2,6 +2,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import type { Express } from 'express';
+import { DataSource } from 'typeorm';
 import { AppModule } from './app.module';
 
 function isOriginAllowed(origin: string | undefined): boolean {
@@ -70,5 +71,22 @@ export async function createNestApp(expressApp?: Express): Promise<INestApplicat
     : await NestFactory.create(AppModule, nestOptions);
 
   applyAppConfig(app);
+  tuneMysqlSessions(app);
   return app;
+}
+
+/** Cierra en MySQL las conexiones de instancias Vercel congeladas (el timer de idle no corre). */
+function tuneMysqlSessions(app: INestApplication): void {
+  if (!process.env.VERCEL) return;
+  try {
+    const ds = app.get(DataSource);
+    const pool = (ds.driver as { pool?: { on?: (event: string, cb: (connection: { query: (sql: string) => void }) => void) => void } }).pool;
+    const sql = 'SET SESSION wait_timeout = 20, interactive_timeout = 20';
+    pool?.on?.('connection', (connection) => {
+      connection.query(sql);
+    });
+    void ds.query(sql).catch(() => undefined);
+  } catch {
+    // El pool sigue usable sin el ajuste de sesión.
+  }
 }

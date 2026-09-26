@@ -3,7 +3,7 @@ import type { Express } from 'express';
 import express from 'express';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { applyProcessTimezone } from './common/utils/timezone.util';
-import { ensureDatabaseMigrations } from './database/migration-bootstrap';
+import { ensureDatabaseMigrations, isTooManyConnections } from './database/migration-bootstrap';
 import { createNestApp } from './app-bootstrap';
 
 config();
@@ -12,6 +12,7 @@ applyProcessTimezone();
 let expressApp: Express | undefined;
 let bootstrapPromise: Promise<Express> | undefined;
 let bootstrapError: Error | undefined;
+let retryAfter = 0;
 
 function requestUrl(req: IncomingMessage): string {
   const raw = req.url ?? '/';
@@ -46,18 +47,28 @@ async function bootstrap(): Promise<Express> {
 }
 
 export async function getApp(): Promise<Express> {
+  if (expressApp) return expressApp;
   if (bootstrapError) throw bootstrapError;
+  if (Date.now() < retryAfter) {
+    throw new Error('MySQL rechazó conexiones (max_user_connections). Reintenta en unos segundos.');
+  }
 
   if (!expressApp) {
     if (!bootstrapPromise) {
       bootstrapPromise = bootstrap()
         .then((app) => {
           expressApp = app;
+          retryAfter = 0;
           return app;
         })
         .catch((err: Error) => {
-          bootstrapError = err;
           bootstrapPromise = undefined;
+          // Si Hostinger está saturado, reintentar en la misma instancia cuando se liberen conexiones.
+          if (isTooManyConnections(err)) {
+            retryAfter = Date.now() + 20_000;
+          } else {
+            bootstrapError = err;
+          }
           console.error('[vercel] Bootstrap falló:', err.message);
           throw err;
         });
@@ -71,6 +82,18 @@ export async function getApp(): Promise<Express> {
 export async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = requestUrl(req);
   const pathOnly = url.split('?')[0];
+
+  if (req.method === 'OPTIONS') {
+    const origin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
+    if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Store-Id, Accept, Origin, X-Requested-With');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
 
   if (pathOnly === '/api/ping' || pathOnly === '/ping') {
     sendJson(res, 200, { pong: true, ts: Date.now() });
