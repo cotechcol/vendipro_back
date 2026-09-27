@@ -3,16 +3,23 @@ import type { Express } from 'express';
 import express from 'express';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { applyProcessTimezone } from './common/utils/timezone.util';
+import { DataSource } from 'typeorm';
 import { ensureDatabaseMigrations, isTooManyConnections } from './database/migration-bootstrap';
 import { createNestApp } from './app-bootstrap';
 
 config();
 applyProcessTimezone();
 
-let expressApp: Express | undefined;
-let bootstrapPromise: Promise<Express> | undefined;
-let bootstrapError: Error | undefined;
-let retryAfter = 0;
+type AppCache = {
+  app?: Express;
+  promise?: Promise<Express>;
+  error?: Error;
+  retryAfter?: number;
+};
+
+const cache = globalThis as typeof globalThis & { __vendiproApp?: AppCache };
+if (!cache.__vendiproApp) cache.__vendiproApp = {};
+const appState = cache.__vendiproApp;
 
 function requestUrl(req: IncomingMessage): string {
   const raw = req.url ?? '/';
@@ -37,45 +44,45 @@ async function bootstrap(): Promise<Express> {
 
   console.log(`[vercel] Iniciando NestJS — DB: ${dbHost}:${process.env.DB_PORT ?? 3306}`);
 
-  await ensureDatabaseMigrations();
-
   const app = express();
   const nestApp = await createNestApp(app);
-  await nestApp.init();
+  try {
+    await nestApp.init();
+    await ensureDatabaseMigrations(nestApp.get(DataSource));
+  } catch (err) {
+    await nestApp.close().catch(() => undefined);
+    throw err;
+  }
   console.log('[vercel] NestJS listo');
   return app;
 }
 
 export async function getApp(): Promise<Express> {
-  if (expressApp) return expressApp;
-  if (bootstrapError) throw bootstrapError;
-  if (Date.now() < retryAfter) {
+  if (appState.app) return appState.app;
+  if (appState.error) throw appState.error;
+  if (Date.now() < (appState.retryAfter ?? 0)) {
     throw new Error('MySQL rechazó conexiones (max_user_connections). Reintenta en unos segundos.');
   }
 
-  if (!expressApp) {
-    if (!bootstrapPromise) {
-      bootstrapPromise = bootstrap()
-        .then((app) => {
-          expressApp = app;
-          retryAfter = 0;
-          return app;
-        })
-        .catch((err: Error) => {
-          bootstrapPromise = undefined;
-          // Si Hostinger está saturado, reintentar en la misma instancia cuando se liberen conexiones.
-          if (isTooManyConnections(err)) {
-            retryAfter = Date.now() + 20_000;
-          } else {
-            bootstrapError = err;
-          }
-          console.error('[vercel] Bootstrap falló:', err.message);
-          throw err;
-        });
-    }
-    expressApp = await bootstrapPromise;
+  if (!appState.promise) {
+    appState.promise = bootstrap()
+      .then((app) => {
+        appState.app = app;
+        appState.retryAfter = 0;
+        return app;
+      })
+      .catch((err: Error) => {
+        appState.promise = undefined;
+        if (isTooManyConnections(err)) {
+          appState.retryAfter = Date.now() + 20_000;
+        } else {
+          appState.error = err;
+        }
+        console.error('[vercel] Bootstrap falló:', err.message);
+        throw err;
+      });
   }
-  return expressApp;
+  return appState.promise;
 }
 
 /** Entry point para Vercel (api/index.js) */

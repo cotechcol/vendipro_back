@@ -1,15 +1,5 @@
 import * as mysql from 'mysql2/promise';
 
-async function createConnection(): Promise<mysql.Connection> {
-  return mysql.createConnection({
-    host: process.env.DB_HOST ?? 'localhost',
-    port: Number(process.env.DB_PORT ?? 3306),
-    user: process.env.DB_USERNAME ?? 'root',
-    password: process.env.DB_PASSWORD ?? '',
-    database: process.env.DB_DATABASE ?? 'pos_db',
-  });
-}
-
 async function tableExists(connection: mysql.Connection, table: string): Promise<boolean> {
   const [rows] = await connection.query<mysql.RowDataPacket[]>(
     `SELECT 1 FROM information_schema.TABLES
@@ -46,9 +36,7 @@ async function columnIsNullable(
 }
 
 /** Migración idempotente: columnas bulk/porción/compuesto y tabla product_recipes */
-export async function runProductMigration(): Promise<void> {
-  const connection = await createConnection();
-
+export async function runProductMigration(connection: mysql.Connection): Promise<void> {
   try {
     if (!(await tableExists(connection, 'products'))) {
       console.log('[product-migration] Tabla products no existe; TypeORM la creará.');
@@ -322,7 +310,7 @@ export async function runProductMigration(): Promise<void> {
     }
 
     console.log('[product-migration] Esquema de productos actualizado');
-  } finally {
-    await connection.end();
+  } catch (err) {
+    throw err;
   }
 }

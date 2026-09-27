@@ -1,15 +1,5 @@
 import * as mysql from 'mysql2/promise';
 
-async function createConnection(): Promise<mysql.Connection> {
-  return mysql.createConnection({
-    host: process.env.DB_HOST ?? 'localhost',
-    port: Number(process.env.DB_PORT ?? 3306),
-    user: process.env.DB_USERNAME ?? 'root',
-    password: process.env.DB_PASSWORD ?? '',
-    database: process.env.DB_DATABASE ?? 'pos_db',
-  });
-}
-
 async function tableExists(connection: mysql.Connection, table: string): Promise<boolean> {
   const [rows] = await connection.query<mysql.RowDataPacket[]>(
     `SELECT 1 FROM information_schema.TABLES
@@ -32,9 +22,7 @@ async function indexExists(
   return rows.length > 0;
 }
 
-export async function runTableMigration(): Promise<void> {
-  const connection = await createConnection();
-
+export async function runTableMigration(connection: mysql.Connection): Promise<void> {
   try {
     if (!(await tableExists(connection, 'restaurant_tables'))) {
       await connection.query(`
@@ -133,7 +121,7 @@ export async function runTableMigration(): Promise<void> {
     }
 
     console.log('[table-migration] Esquema de mesas actualizado');
-  } finally {
-    await connection.end();
+  } catch (err) {
+    throw err;
   }
 }

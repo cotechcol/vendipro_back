@@ -12,15 +12,7 @@ const TABLES_WITH_STORE_ID = [
   'inventory_movements',
 ] as const;
 
-export async function runStoreMigration(): Promise<void> {
-  const connection = await mysql.createConnection({
-    host: process.env.DB_HOST ?? 'localhost',
-    port: Number(process.env.DB_PORT ?? 3306),
-    user: process.env.DB_USERNAME ?? 'root',
-    password: process.env.DB_PASSWORD ?? '',
-    database: process.env.DB_DATABASE ?? 'pos_db',
-  });
-
+export async function runStoreMigration(connection: mysql.Connection): Promise<void> {
   try {
     const db = process.env.DB_DATABASE ?? 'pos_db';
 
@@ -44,8 +36,8 @@ export async function runStoreMigration(): Promise<void> {
     await dropInvalidForeignKeys(connection, db);
 
     console.log(`[migration] Datos asignados a tienda default (id=${defaultStoreId}).`);
-  } finally {
-    await connection.end();
+  } catch (err) {
+    throw err;
   }
 }
 

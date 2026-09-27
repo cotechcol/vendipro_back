@@ -13,15 +13,7 @@ async function columnExists(
   return rows.length > 0;
 }
 
-export async function runSupplierMigration(): Promise<void> {
-  const connection = await mysql.createConnection({
-    host: process.env.DB_HOST ?? 'localhost',
-    port: Number(process.env.DB_PORT ?? 3306),
-    user: process.env.DB_USERNAME ?? 'root',
-    password: process.env.DB_PASSWORD ?? '',
-    database: process.env.DB_DATABASE ?? 'pos_db',
-  });
-
+export async function runSupplierMigration(connection: mysql.Connection): Promise<void> {
   try {
     const [tables] = await connection.query<mysql.RowDataPacket[]>(
       `SELECT 1 FROM information_schema.TABLES
@@ -46,7 +38,7 @@ export async function runSupplierMigration(): Promise<void> {
       MODIFY COLUMN name VARCHAR(150) NULL
     `);
     console.log('[supplier-migration] Esquema de proveedores actualizado');
-  } finally {
-    await connection.end();
+  } catch (err) {
+    throw err;
   }
 }
