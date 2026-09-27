@@ -64,6 +64,19 @@ async function markSchemaCurrent(connection: mysql.Connection): Promise<void> {
   );
 }
 
+/** TypeORM entrega la conexión de mysql2 en modo callback; .promise() permite await query(). */
+function asPromiseConnection(raw: unknown): mysql.Connection {
+  if (
+    raw
+    && typeof raw === 'object'
+    && 'promise' in raw
+    && typeof (raw as { promise?: unknown }).promise === 'function'
+  ) {
+    return (raw as { promise: () => mysql.Connection }).promise();
+  }
+  return raw as mysql.Connection;
+}
+
 async function applyMigrations(connection: mysql.Connection): Promise<void> {
   const started = Date.now();
   try {
@@ -102,8 +115,8 @@ export function ensureDatabaseMigrations(dataSource?: DataSource): Promise<void>
         const runner: QueryRunner = dataSource.createQueryRunner();
         await runner.connect();
         try {
-          const connection = (runner as unknown as { databaseConnection: mysql.Connection }).databaseConnection;
-          await applyMigrations(connection);
+          const raw = (runner as unknown as { databaseConnection: unknown }).databaseConnection;
+          await applyMigrations(asPromiseConnection(raw));
         } finally {
           await runner.release();
         }

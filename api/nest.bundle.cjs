@@ -814,6 +814,12 @@ var require_migration_bootstrap = __commonJS({
       await connection.query(`INSERT INTO _schema_meta (id, version) VALUES (1, ?)
      ON DUPLICATE KEY UPDATE version = VALUES(version)`, [exports2.SCHEMA_VERSION]);
     }
+    function asPromiseConnection(raw) {
+      if (raw && typeof raw === "object" && "promise" in raw && typeof raw.promise === "function") {
+        return raw.promise();
+      }
+      return raw;
+    }
     async function applyMigrations(connection) {
       const started = Date.now();
       try {
@@ -845,8 +851,8 @@ var require_migration_bootstrap = __commonJS({
             const runner = dataSource.createQueryRunner();
             await runner.connect();
             try {
-              const connection2 = runner.databaseConnection;
-              await applyMigrations(connection2);
+              const raw = runner.databaseConnection;
+              await applyMigrations(asPromiseConnection(raw));
             } finally {
               await runner.release();
             }
