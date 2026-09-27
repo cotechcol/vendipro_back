@@ -116,6 +116,17 @@ export async function runSaleMigration(connection: mysql.Connection): Promise<vo
     }
 
     if (
+      await columnExists(connection, 'sales', 'payment_method')
+      && !(await enumHasValue(connection, 'sales', 'payment_method', 'nequi'))
+    ) {
+      await connection.query(`
+        ALTER TABLE sales
+        MODIFY COLUMN payment_method ENUM('cash','card','mixed','nequi') NOT NULL DEFAULT 'cash'
+      `);
+      console.log('[sale-migration] payment_method incluye nequi');
+    }
+
+    if (
       await tableExists(connection, 'sales')
       && !(await indexExists(connection, 'sales', 'IDX_sales_store_created_status'))
     ) {

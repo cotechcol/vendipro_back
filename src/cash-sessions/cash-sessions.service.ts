@@ -37,6 +37,7 @@ export class CashSessionsService {
       totalProfit: number;
       cashTotal: number;
       cardTotal: number;
+      nequiTotal: number;
     },
     role: UserRole,
   ) {
@@ -158,6 +159,9 @@ export class CashSessionsService {
     const cardTotal = sales
       .filter((s) => s.paymentMethod === PaymentMethod.CARD)
       .reduce((s, v) => s + Number(v.total), 0);
+    const nequiTotal = sales
+      .filter((s) => s.paymentMethod === PaymentMethod.NEQUI)
+      .reduce((s, v) => s + Number(v.total), 0);
 
     return {
       totalSales,
@@ -165,6 +169,7 @@ export class CashSessionsService {
       totalProfit: Number(totalProfit.toFixed(2)),
       cashTotal: Number(cashTotal.toFixed(2)),
       cardTotal: Number(cardTotal.toFixed(2)),
+      nequiTotal: Number(nequiTotal.toFixed(2)),
     };
   }
 }

@@ -177,7 +177,8 @@ export class SalesService {
 
     let amountPaid = dto.amountPaid ?? total;
     let change = 0;
-    if (dto.paymentMethod === PaymentMethod.CASH || dto.paymentMethod === PaymentMethod.MIXED) {
+    const expectsCash = dto.paymentMethod === PaymentMethod.CASH || dto.paymentMethod === PaymentMethod.MIXED;
+    if (expectsCash) {
       if (amountPaid < total) {
         throw new BadRequestException('El monto pagado es insuficiente');
       }

@@ -18,6 +18,7 @@ export enum PaymentMethod {
   CASH = 'cash',
   CARD = 'card',
   MIXED = 'mixed',
+  NEQUI = 'nequi',
 }
 
 export enum SaleStatus {

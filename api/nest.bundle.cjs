@@ -28,46 +28,8 @@ var require_timezone_util = __commonJS({
 var require_store_migration = __commonJS({
   "dist/database/store-migration.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      var desc = Object.getOwnPropertyDescriptor(m, k);
-      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function() {
-          return m[k];
-        } };
-      }
-      Object.defineProperty(o, k2, desc);
-    }) : (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      o[k2] = m[k];
-    }));
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
-      Object.defineProperty(o, "default", { enumerable: true, value: v });
-    }) : function(o, v) {
-      o["default"] = v;
-    });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
-      var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function(o2) {
-          var ar = [];
-          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
-          return ar;
-        };
-        return ownKeys(o);
-      };
-      return function(mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        }
-        __setModuleDefault(result, mod);
-        return result;
-      };
-    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.runStoreMigration = runStoreMigration;
-    var mysql = __importStar(require("mysql2/promise"));
     var TABLES_WITH_STORE_ID = [
       "settings",
       "categories",
@@ -79,14 +41,7 @@ var require_store_migration = __commonJS({
       "purchases",
       "inventory_movements"
     ];
-    async function runStoreMigration() {
-      const connection = await mysql.createConnection({
-        host: process.env.DB_HOST ?? "localhost",
-        port: Number(process.env.DB_PORT ?? 3306),
-        user: process.env.DB_USERNAME ?? "root",
-        password: process.env.DB_PASSWORD ?? "",
-        database: process.env.DB_DATABASE ?? "pos_db"
-      });
+    async function runStoreMigration(connection) {
       try {
         const db = process.env.DB_DATABASE ?? "pos_db";
         const [dbRows] = await connection.query("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?", [db]);
@@ -102,8 +57,8 @@ var require_store_migration = __commonJS({
         await backfillUsersStoreId(connection, defaultStoreId);
         await dropInvalidForeignKeys(connection, db);
         console.log(`[migration] Datos asignados a tienda default (id=${defaultStoreId}).`);
-      } finally {
-        await connection.end();
+      } catch (err) {
+        throw err;
       }
     }
     async function ensureStoresTable(connection) {
@@ -187,55 +142,8 @@ var require_store_migration = __commonJS({
 var require_product_migration = __commonJS({
   "dist/database/product-migration.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      var desc = Object.getOwnPropertyDescriptor(m, k);
-      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function() {
-          return m[k];
-        } };
-      }
-      Object.defineProperty(o, k2, desc);
-    }) : (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      o[k2] = m[k];
-    }));
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
-      Object.defineProperty(o, "default", { enumerable: true, value: v });
-    }) : function(o, v) {
-      o["default"] = v;
-    });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
-      var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function(o2) {
-          var ar = [];
-          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
-          return ar;
-        };
-        return ownKeys(o);
-      };
-      return function(mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        }
-        __setModuleDefault(result, mod);
-        return result;
-      };
-    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.runProductMigration = runProductMigration;
-    var mysql = __importStar(require("mysql2/promise"));
-    async function createConnection() {
-      return mysql.createConnection({
-        host: process.env.DB_HOST ?? "localhost",
-        port: Number(process.env.DB_PORT ?? 3306),
-        user: process.env.DB_USERNAME ?? "root",
-        password: process.env.DB_PASSWORD ?? "",
-        database: process.env.DB_DATABASE ?? "pos_db"
-      });
-    }
     async function tableExists(connection, table) {
       const [rows] = await connection.query(`SELECT 1 FROM information_schema.TABLES
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]);
@@ -251,8 +159,7 @@ var require_product_migration = __commonJS({
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, column]);
       return rows[0]?.IS_NULLABLE === "YES";
     }
-    async function runProductMigration() {
-      const connection = await createConnection();
+    async function runProductMigration(connection) {
       try {
         if (!await tableExists(connection, "products")) {
           console.log("[product-migration] Tabla products no existe; TypeORM la crear\xE1.");
@@ -498,8 +405,8 @@ var require_product_migration = __commonJS({
           }
         }
         console.log("[product-migration] Esquema de productos actualizado");
-      } finally {
-        await connection.end();
+      } catch (err) {
+        throw err;
       }
     }
   }
@@ -509,59 +416,14 @@ var require_product_migration = __commonJS({
 var require_supplier_migration = __commonJS({
   "dist/database/supplier-migration.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      var desc = Object.getOwnPropertyDescriptor(m, k);
-      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function() {
-          return m[k];
-        } };
-      }
-      Object.defineProperty(o, k2, desc);
-    }) : (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      o[k2] = m[k];
-    }));
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
-      Object.defineProperty(o, "default", { enumerable: true, value: v });
-    }) : function(o, v) {
-      o["default"] = v;
-    });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
-      var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function(o2) {
-          var ar = [];
-          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
-          return ar;
-        };
-        return ownKeys(o);
-      };
-      return function(mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        }
-        __setModuleDefault(result, mod);
-        return result;
-      };
-    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.runSupplierMigration = runSupplierMigration;
-    var mysql = __importStar(require("mysql2/promise"));
     async function columnExists(connection, table, column) {
       const [rows] = await connection.query(`SELECT 1 FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, column]);
       return rows.length > 0;
     }
-    async function runSupplierMigration() {
-      const connection = await mysql.createConnection({
-        host: process.env.DB_HOST ?? "localhost",
-        port: Number(process.env.DB_PORT ?? 3306),
-        user: process.env.DB_USERNAME ?? "root",
-        password: process.env.DB_PASSWORD ?? "",
-        database: process.env.DB_DATABASE ?? "pos_db"
-      });
+    async function runSupplierMigration(connection) {
       try {
         const [tables] = await connection.query(`SELECT 1 FROM information_schema.TABLES
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'suppliers'`);
@@ -582,8 +444,8 @@ var require_supplier_migration = __commonJS({
       MODIFY COLUMN name VARCHAR(150) NULL
     `);
         console.log("[supplier-migration] Esquema de proveedores actualizado");
-      } finally {
-        await connection.end();
+      } catch (err) {
+        throw err;
       }
     }
   }
@@ -593,55 +455,8 @@ var require_supplier_migration = __commonJS({
 var require_table_migration = __commonJS({
   "dist/database/table-migration.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      var desc = Object.getOwnPropertyDescriptor(m, k);
-      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function() {
-          return m[k];
-        } };
-      }
-      Object.defineProperty(o, k2, desc);
-    }) : (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      o[k2] = m[k];
-    }));
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
-      Object.defineProperty(o, "default", { enumerable: true, value: v });
-    }) : function(o, v) {
-      o["default"] = v;
-    });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
-      var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function(o2) {
-          var ar = [];
-          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
-          return ar;
-        };
-        return ownKeys(o);
-      };
-      return function(mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        }
-        __setModuleDefault(result, mod);
-        return result;
-      };
-    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.runTableMigration = runTableMigration;
-    var mysql = __importStar(require("mysql2/promise"));
-    async function createConnection() {
-      return mysql.createConnection({
-        host: process.env.DB_HOST ?? "localhost",
-        port: Number(process.env.DB_PORT ?? 3306),
-        user: process.env.DB_USERNAME ?? "root",
-        password: process.env.DB_PASSWORD ?? "",
-        database: process.env.DB_DATABASE ?? "pos_db"
-      });
-    }
     async function tableExists(connection, table) {
       const [rows] = await connection.query(`SELECT 1 FROM information_schema.TABLES
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]);
@@ -652,8 +467,7 @@ var require_table_migration = __commonJS({
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`, [table, indexName]);
       return rows.length > 0;
     }
-    async function runTableMigration() {
-      const connection = await createConnection();
+    async function runTableMigration(connection) {
       try {
         if (!await tableExists(connection, "restaurant_tables")) {
           await connection.query(`
@@ -749,8 +563,8 @@ var require_table_migration = __commonJS({
           console.log("[table-migration] Tabla table_order_items creada");
         }
         console.log("[table-migration] Esquema de mesas actualizado");
-      } finally {
-        await connection.end();
+      } catch (err) {
+        throw err;
       }
     }
   }
@@ -760,55 +574,8 @@ var require_table_migration = __commonJS({
 var require_sale_migration = __commonJS({
   "dist/database/sale-migration.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      var desc = Object.getOwnPropertyDescriptor(m, k);
-      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function() {
-          return m[k];
-        } };
-      }
-      Object.defineProperty(o, k2, desc);
-    }) : (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      o[k2] = m[k];
-    }));
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
-      Object.defineProperty(o, "default", { enumerable: true, value: v });
-    }) : function(o, v) {
-      o["default"] = v;
-    });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
-      var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function(o2) {
-          var ar = [];
-          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
-          return ar;
-        };
-        return ownKeys(o);
-      };
-      return function(mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        }
-        __setModuleDefault(result, mod);
-        return result;
-      };
-    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.runSaleMigration = runSaleMigration;
-    var mysql = __importStar(require("mysql2/promise"));
-    async function createConnection() {
-      return mysql.createConnection({
-        host: process.env.DB_HOST ?? "localhost",
-        port: Number(process.env.DB_PORT ?? 3306),
-        user: process.env.DB_USERNAME ?? "root",
-        password: process.env.DB_PASSWORD ?? "",
-        database: process.env.DB_DATABASE ?? "pos_db"
-      });
-    }
     async function tableExists(connection, table) {
       const [rows] = await connection.query(`SELECT 1 FROM information_schema.TABLES
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]);
@@ -830,8 +597,7 @@ var require_sale_migration = __commonJS({
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`, [table, indexName]);
       return rows.length > 0;
     }
-    async function runSaleMigration() {
-      const connection = await createConnection();
+    async function runSaleMigration(connection) {
       try {
         if (!await tableExists(connection, "sales")) {
           console.log("[sale-migration] Tabla sales no existe a\xFAn; se omite");
@@ -886,6 +652,13 @@ var require_sale_migration = __commonJS({
             console.log("[sale-migration] inventory_movements.type incluye sale_reversal");
           }
         }
+        if (await columnExists(connection, "sales", "payment_method") && !await enumHasValue(connection, "sales", "payment_method", "nequi")) {
+          await connection.query(`
+        ALTER TABLE sales
+        MODIFY COLUMN payment_method ENUM('cash','card','mixed','nequi') NOT NULL DEFAULT 'cash'
+      `);
+          console.log("[sale-migration] payment_method incluye nequi");
+        }
         if (await tableExists(connection, "sales") && !await indexExists(connection, "sales", "IDX_sales_store_created_status")) {
           await connection.query(`
         CREATE INDEX IDX_sales_store_created_status
@@ -894,16 +667,16 @@ var require_sale_migration = __commonJS({
           console.log("[sale-migration] \xCDndice IDX_sales_store_created_status agregado");
         }
         console.log("[sale-migration] Esquema de ventas actualizado");
-      } finally {
-        await connection.end();
+      } catch (err) {
+        throw err;
       }
     }
   }
 });
 
-// dist/database/migration-bootstrap.js
-var require_migration_bootstrap = __commonJS({
-  "dist/database/migration-bootstrap.js"(exports2) {
+// dist/database/mysql-singleton.js
+var require_mysql_singleton = __commonJS({
+  "dist/database/mysql-singleton.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -943,83 +716,148 @@ var require_migration_bootstrap = __commonJS({
       };
     })();
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.SCHEMA_VERSION = void 0;
-    exports2.ensureDatabaseMigrations = ensureDatabaseMigrations;
+    exports2.getMysqlSingleton = getMysqlSingleton;
+    exports2.releaseMysqlSingleton = releaseMysqlSingleton;
     var mysql = __importStar(require("mysql2/promise"));
-    var store_migration_1 = require_store_migration();
-    var product_migration_1 = require_product_migration();
-    var supplier_migration_1 = require_supplier_migration();
-    var table_migration_1 = require_table_migration();
-    var sale_migration_1 = require_sale_migration();
-    exports2.SCHEMA_VERSION = 7;
-    var migrationPromise = null;
-    async function createConnection() {
-      return mysql.createConnection({
+    var globalState = globalThis;
+    function state() {
+      if (!globalState.__vendiproMysql) {
+        globalState.__vendiproMysql = { connection: null, pending: null };
+      }
+      return globalState.__vendiproMysql;
+    }
+    function dbConfig() {
+      return {
         host: process.env.DB_HOST ?? "localhost",
         port: Number(process.env.DB_PORT ?? 3306),
         user: process.env.DB_USERNAME ?? "root",
         password: process.env.DB_PASSWORD ?? "",
         database: process.env.DB_DATABASE ?? "pos_db",
         connectTimeout: 8e3
-      });
+      };
     }
-    async function isSchemaCurrent() {
-      const connection = await createConnection();
+    async function getMysqlSingleton() {
+      const current = state();
+      if (current.connection)
+        return current.connection;
+      if (!current.pending) {
+        current.pending = mysql.createConnection(dbConfig()).then((connection) => {
+          current.connection = connection;
+          connection.on("error", () => {
+            if (current.connection === connection)
+              current.connection = null;
+          });
+          return connection;
+        }).finally(() => {
+          current.pending = null;
+        });
+      }
+      return current.pending;
+    }
+    async function releaseMysqlSingleton() {
+      const current = state();
+      const connection = current.connection;
+      current.connection = null;
+      current.pending = null;
+      if (!connection)
+        return;
       try {
-        await connection.query(`
-      CREATE TABLE IF NOT EXISTS _schema_meta (
-        id INT NOT NULL PRIMARY KEY,
-        version INT NOT NULL,
-        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-          ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
-        const [rows] = await connection.query("SELECT version FROM _schema_meta WHERE id = 1 LIMIT 1");
-        return Number(rows[0]?.version ?? 0) >= exports2.SCHEMA_VERSION;
-      } finally {
         await connection.end();
+      } catch {
       }
     }
-    async function markSchemaCurrent() {
-      const connection = await createConnection();
-      try {
-        await connection.query(`
-      CREATE TABLE IF NOT EXISTS _schema_meta (
-        id INT NOT NULL PRIMARY KEY,
-        version INT NOT NULL,
-        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-          ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
-        await connection.query(`INSERT INTO _schema_meta (id, version) VALUES (1, ?)
-       ON DUPLICATE KEY UPDATE version = VALUES(version)`, [exports2.SCHEMA_VERSION]);
-      } finally {
-        await connection.end();
+  }
+});
+
+// dist/database/migration-bootstrap.js
+var require_migration_bootstrap = __commonJS({
+  "dist/database/migration-bootstrap.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.SCHEMA_VERSION = void 0;
+    exports2.isTooManyConnections = isTooManyConnections;
+    exports2.ensureDatabaseMigrations = ensureDatabaseMigrations;
+    var store_migration_1 = require_store_migration();
+    var product_migration_1 = require_product_migration();
+    var supplier_migration_1 = require_supplier_migration();
+    var table_migration_1 = require_table_migration();
+    var sale_migration_1 = require_sale_migration();
+    var mysql_singleton_1 = require_mysql_singleton();
+    exports2.SCHEMA_VERSION = 8;
+    var migrationPromise = null;
+    function isTooManyConnections(err) {
+      const seen = /* @__PURE__ */ new Set();
+      let current = err;
+      while (current && typeof current === "object" && !seen.has(current)) {
+        seen.add(current);
+        const e = current;
+        if (e.code === "ER_TOO_MANY_USER_CONNECTIONS" || e.code === "ER_CON_COUNT_ERROR" || e.errno === 1203 || e.errno === 1040 || typeof e.message === "string" && e.message.includes("max_user_connections")) {
+          return true;
+        }
+        current = e.driverError ?? e.cause;
       }
+      return false;
     }
-    function ensureDatabaseMigrations() {
+    async function isSchemaCurrent(connection) {
+      await connection.query(`
+    CREATE TABLE IF NOT EXISTS _schema_meta (
+      id INT NOT NULL PRIMARY KEY,
+      version INT NOT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+      const [rows] = await connection.query("SELECT version FROM _schema_meta WHERE id = 1 LIMIT 1");
+      return Number(rows[0]?.version ?? 0) >= exports2.SCHEMA_VERSION;
+    }
+    async function markSchemaCurrent(connection) {
+      await connection.query(`INSERT INTO _schema_meta (id, version) VALUES (1, ?)
+     ON DUPLICATE KEY UPDATE version = VALUES(version)`, [exports2.SCHEMA_VERSION]);
+    }
+    async function applyMigrations(connection) {
+      const started = Date.now();
+      try {
+        if (await isSchemaCurrent(connection)) {
+          console.log(`[migration] Esquema al d\xEDa (v${exports2.SCHEMA_VERSION}) en ${Date.now() - started}ms`);
+          return;
+        }
+      } catch (err) {
+        if (isTooManyConnections(err))
+          throw err;
+        console.warn("[migration] No se pudo leer _schema_meta, se aplican migraciones:", err);
+      }
+      await (0, store_migration_1.runStoreMigration)(connection);
+      await (0, product_migration_1.runProductMigration)(connection);
+      await (0, supplier_migration_1.runSupplierMigration)(connection);
+      await (0, table_migration_1.runTableMigration)(connection);
+      await (0, sale_migration_1.runSaleMigration)(connection);
+      try {
+        await markSchemaCurrent(connection);
+      } catch (err) {
+        console.warn("[migration] No se pudo guardar versi\xF3n de esquema:", err);
+      }
+      console.log(`[migration] Esquema verificado (v${exports2.SCHEMA_VERSION}) en ${Date.now() - started}ms`);
+    }
+    function ensureDatabaseMigrations(dataSource) {
       if (!migrationPromise) {
         migrationPromise = (async () => {
-          const started = Date.now();
-          try {
-            if (await isSchemaCurrent()) {
-              console.log(`[migration] Esquema al d\xEDa (v${exports2.SCHEMA_VERSION}) en ${Date.now() - started}ms`);
-              return;
+          if (dataSource) {
+            const runner = dataSource.createQueryRunner();
+            await runner.connect();
+            try {
+              const connection2 = runner.databaseConnection;
+              await applyMigrations(connection2);
+            } finally {
+              await runner.release();
             }
-          } catch (err) {
-            console.warn("[migration] No se pudo leer _schema_meta, se aplican migraciones:", err);
+            return;
           }
-          await (0, store_migration_1.runStoreMigration)();
-          await (0, product_migration_1.runProductMigration)();
-          await (0, supplier_migration_1.runSupplierMigration)();
-          await (0, table_migration_1.runTableMigration)();
-          await (0, sale_migration_1.runSaleMigration)();
+          const connection = await (0, mysql_singleton_1.getMysqlSingleton)();
           try {
-            await markSchemaCurrent();
-          } catch (err) {
-            console.warn("[migration] No se pudo guardar versi\xF3n de esquema:", err);
+            await applyMigrations(connection);
+          } finally {
+            await (0, mysql_singleton_1.releaseMysqlSingleton)();
           }
-          console.log(`[migration] Esquema verificado (v${exports2.SCHEMA_VERSION}) en ${Date.now() - started}ms`);
         })().catch((err) => {
           migrationPromise = null;
           console.error("[migration] Error aplicando migraciones:", err);
@@ -1058,6 +896,7 @@ var require_enums = __commonJS({
       PaymentMethod2["CASH"] = "cash";
       PaymentMethod2["CARD"] = "card";
       PaymentMethod2["MIXED"] = "mixed";
+      PaymentMethod2["NEQUI"] = "nequi";
     })(PaymentMethod || (exports2.PaymentMethod = PaymentMethod = {}));
     var SaleStatus;
     (function(SaleStatus2) {
@@ -1111,7 +950,7 @@ var require_setting_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Setting = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var store_entity_1 = require_store_entity();
     var Setting = class Setting {
       id;
@@ -1127,49 +966,49 @@ var require_setting_entity = __commonJS({
     };
     exports2.Setting = Setting;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], Setting.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id" }),
+      (0, typeorm_12.Column)({ name: "store_id" }),
       __metadata("design:type", Number)
     ], Setting.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store, (store) => store.settings),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store, (store) => store.settings),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], Setting.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "business_name", length: 200, default: "Mi Negocio" }),
+      (0, typeorm_12.Column)({ name: "business_name", length: 200, default: "Mi Negocio" }),
       __metadata("design:type", String)
     ], Setting.prototype, "businessName", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", String)
     ], Setting.prototype, "address", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 20, nullable: true }),
+      (0, typeorm_12.Column)({ length: 20, nullable: true }),
       __metadata("design:type", String)
     ], Setting.prototype, "phone", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "tax_rate", type: "decimal", precision: 5, scale: 4, default: 0.16 }),
+      (0, typeorm_12.Column)({ name: "tax_rate", type: "decimal", precision: 5, scale: 4, default: 0.16 }),
       __metadata("design:type", Number)
     ], Setting.prototype, "taxRate", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "logo_url", nullable: true }),
+      (0, typeorm_12.Column)({ name: "logo_url", nullable: true }),
       __metadata("design:type", String)
     ], Setting.prototype, "logoUrl", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 3, default: "COP" }),
+      (0, typeorm_12.Column)({ length: 3, default: "COP" }),
       __metadata("design:type", String)
     ], Setting.prototype, "currency", void 0);
     __decorate([
-      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      (0, typeorm_12.UpdateDateColumn)({ name: "updated_at" }),
       __metadata("design:type", Date)
     ], Setting.prototype, "updatedAt", void 0);
     exports2.Setting = Setting = __decorate([
-      (0, typeorm_1.Entity)("settings"),
-      (0, typeorm_1.Unique)(["storeId"])
+      (0, typeorm_12.Entity)("settings"),
+      (0, typeorm_12.Unique)(["storeId"])
     ], Setting);
   }
 });
@@ -1189,7 +1028,7 @@ var require_store_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Store = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var user_entity_1 = require_user_entity();
     var setting_entity_1 = require_setting_entity();
     var Store = class Store {
@@ -1205,43 +1044,43 @@ var require_store_entity = __commonJS({
     };
     exports2.Store = Store;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], Store.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 150 }),
+      (0, typeorm_12.Column)({ length: 150 }),
       __metadata("design:type", String)
     ], Store.prototype, "name", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ unique: true, length: 50 }),
+      (0, typeorm_12.Column)({ unique: true, length: 50 }),
       __metadata("design:type", String)
     ], Store.prototype, "code", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", String)
     ], Store.prototype, "address", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 20, nullable: true }),
+      (0, typeorm_12.Column)({ length: 20, nullable: true }),
       __metadata("design:type", String)
     ], Store.prototype, "phone", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ default: true }),
+      (0, typeorm_12.Column)({ default: true }),
       __metadata("design:type", Boolean)
     ], Store.prototype, "active", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => user_entity_1.User, (user) => user.store),
+      (0, typeorm_12.OneToMany)(() => user_entity_1.User, (user) => user.store),
       __metadata("design:type", Array)
     ], Store.prototype, "users", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => setting_entity_1.Setting, (setting) => setting.store),
+      (0, typeorm_12.OneToMany)(() => setting_entity_1.Setting, (setting) => setting.store),
       __metadata("design:type", Array)
     ], Store.prototype, "settings", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], Store.prototype, "createdAt", void 0);
     exports2.Store = Store = __decorate([
-      (0, typeorm_1.Entity)("stores")
+      (0, typeorm_12.Entity)("stores")
     ], Store);
   }
 });
@@ -1261,7 +1100,7 @@ var require_customer_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Customer = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var store_entity_1 = require_store_entity();
     var sale_entity_1 = require_sale_entity();
     var Customer = class Customer {
@@ -1279,52 +1118,52 @@ var require_customer_entity = __commonJS({
     };
     exports2.Customer = Customer;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], Customer.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id" }),
+      (0, typeorm_12.Column)({ name: "store_id" }),
       __metadata("design:type", Number)
     ], Customer.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], Customer.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 150 }),
+      (0, typeorm_12.Column)({ length: 150 }),
       __metadata("design:type", String)
     ], Customer.prototype, "name", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 150, nullable: true }),
+      (0, typeorm_12.Column)({ length: 150, nullable: true }),
       __metadata("design:type", String)
     ], Customer.prototype, "email", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 20, nullable: true }),
+      (0, typeorm_12.Column)({ length: 20, nullable: true }),
       __metadata("design:type", String)
     ], Customer.prototype, "phone", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", String)
     ], Customer.prototype, "address", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ default: true }),
+      (0, typeorm_12.Column)({ default: true }),
       __metadata("design:type", Boolean)
     ], Customer.prototype, "active", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => sale_entity_1.Sale, (sale) => sale.customer),
+      (0, typeorm_12.OneToMany)(() => sale_entity_1.Sale, (sale) => sale.customer),
       __metadata("design:type", Array)
     ], Customer.prototype, "sales", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], Customer.prototype, "createdAt", void 0);
     __decorate([
-      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      (0, typeorm_12.UpdateDateColumn)({ name: "updated_at" }),
       __metadata("design:type", Date)
     ], Customer.prototype, "updatedAt", void 0);
     exports2.Customer = Customer = __decorate([
-      (0, typeorm_1.Entity)("customers")
+      (0, typeorm_12.Entity)("customers")
     ], Customer);
   }
 });
@@ -1344,7 +1183,7 @@ var require_category_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Category = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var store_entity_1 = require_store_entity();
     var product_entity_1 = require_product_entity();
     var Category = class Category {
@@ -1360,45 +1199,45 @@ var require_category_entity = __commonJS({
     };
     exports2.Category = Category;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], Category.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id" }),
+      (0, typeorm_12.Column)({ name: "store_id" }),
       __metadata("design:type", Number)
     ], Category.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], Category.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 100 }),
+      (0, typeorm_12.Column)({ length: 100 }),
       __metadata("design:type", String)
     ], Category.prototype, "name", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", String)
     ], Category.prototype, "description", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ default: true }),
+      (0, typeorm_12.Column)({ default: true }),
       __metadata("design:type", Boolean)
     ], Category.prototype, "active", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => product_entity_1.Product, (product) => product.category),
+      (0, typeorm_12.OneToMany)(() => product_entity_1.Product, (product) => product.category),
       __metadata("design:type", Array)
     ], Category.prototype, "products", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], Category.prototype, "createdAt", void 0);
     __decorate([
-      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      (0, typeorm_12.UpdateDateColumn)({ name: "updated_at" }),
       __metadata("design:type", Date)
     ], Category.prototype, "updatedAt", void 0);
     exports2.Category = Category = __decorate([
-      (0, typeorm_1.Entity)("categories"),
-      (0, typeorm_1.Unique)(["storeId", "name"])
+      (0, typeorm_12.Entity)("categories"),
+      (0, typeorm_12.Unique)(["storeId", "name"])
     ], Category);
   }
 });
@@ -1418,7 +1257,7 @@ var require_inventory_movement_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InventoryMovement = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var enums_1 = require_enums();
     var store_entity_1 = require_store_entity();
     var product_entity_1 = require_product_entity();
@@ -1441,66 +1280,66 @@ var require_inventory_movement_entity = __commonJS({
     };
     exports2.InventoryMovement = InventoryMovement;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], InventoryMovement.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id" }),
+      (0, typeorm_12.Column)({ name: "store_id" }),
       __metadata("design:type", Number)
     ], InventoryMovement.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], InventoryMovement.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "product_id" }),
+      (0, typeorm_12.Column)({ name: "product_id" }),
       __metadata("design:type", Number)
     ], InventoryMovement.prototype, "productId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => product_entity_1.Product, (product) => product.movements),
-      (0, typeorm_1.JoinColumn)({ name: "product_id" }),
+      (0, typeorm_12.ManyToOne)(() => product_entity_1.Product, (product) => product.movements),
+      (0, typeorm_12.JoinColumn)({ name: "product_id" }),
       __metadata("design:type", product_entity_1.Product)
     ], InventoryMovement.prototype, "product", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "enum", enum: enums_1.InventoryMovementType }),
+      (0, typeorm_12.Column)({ type: "enum", enum: enums_1.InventoryMovementType }),
       __metadata("design:type", String)
     ], InventoryMovement.prototype, "type", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 3 }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 3 }),
       __metadata("design:type", Number)
     ], InventoryMovement.prototype, "quantity", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "stock_before", type: "decimal", precision: 12, scale: 3 }),
+      (0, typeorm_12.Column)({ name: "stock_before", type: "decimal", precision: 12, scale: 3 }),
       __metadata("design:type", Number)
     ], InventoryMovement.prototype, "stockBefore", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "stock_after", type: "decimal", precision: 12, scale: 3 }),
+      (0, typeorm_12.Column)({ name: "stock_after", type: "decimal", precision: 12, scale: 3 }),
       __metadata("design:type", Number)
     ], InventoryMovement.prototype, "stockAfter", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", String)
     ], InventoryMovement.prototype, "reference", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", String)
     ], InventoryMovement.prototype, "notes", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "user_id", nullable: true }),
+      (0, typeorm_12.Column)({ name: "user_id", nullable: true }),
       __metadata("design:type", Number)
     ], InventoryMovement.prototype, "userId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => user_entity_1.User, { nullable: true }),
-      (0, typeorm_1.JoinColumn)({ name: "user_id" }),
+      (0, typeorm_12.ManyToOne)(() => user_entity_1.User, { nullable: true }),
+      (0, typeorm_12.JoinColumn)({ name: "user_id" }),
       __metadata("design:type", user_entity_1.User)
     ], InventoryMovement.prototype, "user", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], InventoryMovement.prototype, "createdAt", void 0);
     exports2.InventoryMovement = InventoryMovement = __decorate([
-      (0, typeorm_1.Entity)("inventory_movements")
+      (0, typeorm_12.Entity)("inventory_movements")
     ], InventoryMovement);
   }
 });
@@ -1520,7 +1359,7 @@ var require_supplier_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Supplier = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var store_entity_1 = require_store_entity();
     var purchase_entity_1 = require_purchase_entity();
     var Supplier = class Supplier {
@@ -1540,60 +1379,60 @@ var require_supplier_entity = __commonJS({
     };
     exports2.Supplier = Supplier;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], Supplier.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id" }),
+      (0, typeorm_12.Column)({ name: "store_id" }),
       __metadata("design:type", Number)
     ], Supplier.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], Supplier.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "varchar", length: 150, nullable: true }),
+      (0, typeorm_12.Column)({ type: "varchar", length: 150, nullable: true }),
       __metadata("design:type", Object)
     ], Supplier.prototype, "name", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "varchar", length: 20, nullable: true }),
+      (0, typeorm_12.Column)({ type: "varchar", length: 20, nullable: true }),
       __metadata("design:type", Object)
     ], Supplier.prototype, "nit", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "varchar", length: 150, nullable: true }),
+      (0, typeorm_12.Column)({ type: "varchar", length: 150, nullable: true }),
       __metadata("design:type", Object)
     ], Supplier.prototype, "email", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "varchar", length: 20, nullable: true }),
+      (0, typeorm_12.Column)({ type: "varchar", length: 20, nullable: true }),
       __metadata("design:type", Object)
     ], Supplier.prototype, "phone", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", Object)
     ], Supplier.prototype, "address", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "varchar", length: 100, nullable: true }),
+      (0, typeorm_12.Column)({ type: "varchar", length: 100, nullable: true }),
       __metadata("design:type", Object)
     ], Supplier.prototype, "contact", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ default: true }),
+      (0, typeorm_12.Column)({ default: true }),
       __metadata("design:type", Boolean)
     ], Supplier.prototype, "active", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => purchase_entity_1.Purchase, (purchase) => purchase.supplier),
+      (0, typeorm_12.OneToMany)(() => purchase_entity_1.Purchase, (purchase) => purchase.supplier),
       __metadata("design:type", Array)
     ], Supplier.prototype, "purchases", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], Supplier.prototype, "createdAt", void 0);
     __decorate([
-      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      (0, typeorm_12.UpdateDateColumn)({ name: "updated_at" }),
       __metadata("design:type", Date)
     ], Supplier.prototype, "updatedAt", void 0);
     exports2.Supplier = Supplier = __decorate([
-      (0, typeorm_1.Entity)("suppliers")
+      (0, typeorm_12.Entity)("suppliers")
     ], Supplier);
   }
 });
@@ -1613,7 +1452,7 @@ var require_purchase_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Purchase = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var store_entity_1 = require_store_entity();
     var supplier_entity_1 = require_supplier_entity();
     var user_entity_1 = require_user_entity();
@@ -1634,58 +1473,58 @@ var require_purchase_entity = __commonJS({
     };
     exports2.Purchase = Purchase;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], Purchase.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id" }),
+      (0, typeorm_12.Column)({ name: "store_id" }),
       __metadata("design:type", Number)
     ], Purchase.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], Purchase.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "invoice_number", length: 50, nullable: true }),
+      (0, typeorm_12.Column)({ name: "invoice_number", length: 50, nullable: true }),
       __metadata("design:type", String)
     ], Purchase.prototype, "invoiceNumber", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], Purchase.prototype, "total", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", String)
     ], Purchase.prototype, "notes", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "supplier_id" }),
+      (0, typeorm_12.Column)({ name: "supplier_id" }),
       __metadata("design:type", Number)
     ], Purchase.prototype, "supplierId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => supplier_entity_1.Supplier, (supplier) => supplier.purchases),
-      (0, typeorm_1.JoinColumn)({ name: "supplier_id" }),
+      (0, typeorm_12.ManyToOne)(() => supplier_entity_1.Supplier, (supplier) => supplier.purchases),
+      (0, typeorm_12.JoinColumn)({ name: "supplier_id" }),
       __metadata("design:type", supplier_entity_1.Supplier)
     ], Purchase.prototype, "supplier", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "user_id" }),
+      (0, typeorm_12.Column)({ name: "user_id" }),
       __metadata("design:type", Number)
     ], Purchase.prototype, "userId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => user_entity_1.User),
-      (0, typeorm_1.JoinColumn)({ name: "user_id" }),
+      (0, typeorm_12.ManyToOne)(() => user_entity_1.User),
+      (0, typeorm_12.JoinColumn)({ name: "user_id" }),
       __metadata("design:type", user_entity_1.User)
     ], Purchase.prototype, "user", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => purchase_item_entity_1.PurchaseItem, (item) => item.purchase, { cascade: true }),
+      (0, typeorm_12.OneToMany)(() => purchase_item_entity_1.PurchaseItem, (item) => item.purchase, { cascade: true }),
       __metadata("design:type", Array)
     ], Purchase.prototype, "items", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], Purchase.prototype, "createdAt", void 0);
     exports2.Purchase = Purchase = __decorate([
-      (0, typeorm_1.Entity)("purchases")
+      (0, typeorm_12.Entity)("purchases")
     ], Purchase);
   }
 });
@@ -1705,7 +1544,7 @@ var require_purchase_item_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.PurchaseItem = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var purchase_entity_1 = require_purchase_entity();
     var product_entity_1 = require_product_entity();
     var PurchaseItem = class PurchaseItem {
@@ -1720,41 +1559,41 @@ var require_purchase_item_entity = __commonJS({
     };
     exports2.PurchaseItem = PurchaseItem;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], PurchaseItem.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "purchase_id" }),
+      (0, typeorm_12.Column)({ name: "purchase_id" }),
       __metadata("design:type", Number)
     ], PurchaseItem.prototype, "purchaseId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => purchase_entity_1.Purchase, (purchase) => purchase.items, { onDelete: "CASCADE" }),
-      (0, typeorm_1.JoinColumn)({ name: "purchase_id" }),
+      (0, typeorm_12.ManyToOne)(() => purchase_entity_1.Purchase, (purchase) => purchase.items, { onDelete: "CASCADE" }),
+      (0, typeorm_12.JoinColumn)({ name: "purchase_id" }),
       __metadata("design:type", purchase_entity_1.Purchase)
     ], PurchaseItem.prototype, "purchase", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "product_id" }),
+      (0, typeorm_12.Column)({ name: "product_id" }),
       __metadata("design:type", Number)
     ], PurchaseItem.prototype, "productId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => product_entity_1.Product, (product) => product.purchaseItems),
-      (0, typeorm_1.JoinColumn)({ name: "product_id" }),
+      (0, typeorm_12.ManyToOne)(() => product_entity_1.Product, (product) => product.purchaseItems),
+      (0, typeorm_12.JoinColumn)({ name: "product_id" }),
       __metadata("design:type", product_entity_1.Product)
     ], PurchaseItem.prototype, "product", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "int" }),
+      (0, typeorm_12.Column)({ type: "int" }),
       __metadata("design:type", Number)
     ], PurchaseItem.prototype, "quantity", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "unit_cost", type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ name: "unit_cost", type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], PurchaseItem.prototype, "unitCost", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], PurchaseItem.prototype, "subtotal", void 0);
     exports2.PurchaseItem = PurchaseItem = __decorate([
-      (0, typeorm_1.Entity)("purchase_items")
+      (0, typeorm_12.Entity)("purchase_items")
     ], PurchaseItem);
   }
 });
@@ -1774,7 +1613,7 @@ var require_product_recipe_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ProductRecipe = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var product_entity_1 = require_product_entity();
     var enums_1 = require_enums();
     var ProductRecipe = class ProductRecipe {
@@ -1788,37 +1627,37 @@ var require_product_recipe_entity = __commonJS({
     };
     exports2.ProductRecipe = ProductRecipe;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], ProductRecipe.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "product_id" }),
+      (0, typeorm_12.Column)({ name: "product_id" }),
       __metadata("design:type", Number)
     ], ProductRecipe.prototype, "productId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => product_entity_1.Product, (product) => product.recipe, { onDelete: "CASCADE" }),
-      (0, typeorm_1.JoinColumn)({ name: "product_id" }),
+      (0, typeorm_12.ManyToOne)(() => product_entity_1.Product, (product) => product.recipe, { onDelete: "CASCADE" }),
+      (0, typeorm_12.JoinColumn)({ name: "product_id" }),
       __metadata("design:type", product_entity_1.Product)
     ], ProductRecipe.prototype, "product", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "ingredient_product_id" }),
+      (0, typeorm_12.Column)({ name: "ingredient_product_id" }),
       __metadata("design:type", Number)
     ], ProductRecipe.prototype, "ingredientProductId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => product_entity_1.Product, { eager: false }),
-      (0, typeorm_1.JoinColumn)({ name: "ingredient_product_id" }),
+      (0, typeorm_12.ManyToOne)(() => product_entity_1.Product, { eager: false }),
+      (0, typeorm_12.JoinColumn)({ name: "ingredient_product_id" }),
       __metadata("design:type", product_entity_1.Product)
     ], ProductRecipe.prototype, "ingredient", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 3 }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 3 }),
       __metadata("design:type", Number)
     ], ProductRecipe.prototype, "quantity", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "enum", enum: enums_1.StockUnit, default: enums_1.StockUnit.G }),
+      (0, typeorm_12.Column)({ type: "enum", enum: enums_1.StockUnit, default: enums_1.StockUnit.G }),
       __metadata("design:type", String)
     ], ProductRecipe.prototype, "unit", void 0);
     exports2.ProductRecipe = ProductRecipe = __decorate([
-      (0, typeorm_1.Entity)("product_recipes")
+      (0, typeorm_12.Entity)("product_recipes")
     ], ProductRecipe);
   }
 });
@@ -1838,7 +1677,7 @@ var require_product_option_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ProductOption = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var enums_1 = require_enums();
     var product_entity_1 = require_product_entity();
     var product_option_group_entity_1 = require_product_option_group_entity();
@@ -1856,49 +1695,49 @@ var require_product_option_entity = __commonJS({
     };
     exports2.ProductOption = ProductOption;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], ProductOption.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "group_id" }),
+      (0, typeorm_12.Column)({ name: "group_id" }),
       __metadata("design:type", Number)
     ], ProductOption.prototype, "groupId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => product_option_group_entity_1.ProductOptionGroup, (group) => group.options, { onDelete: "CASCADE" }),
-      (0, typeorm_1.JoinColumn)({ name: "group_id" }),
+      (0, typeorm_12.ManyToOne)(() => product_option_group_entity_1.ProductOptionGroup, (group) => group.options, { onDelete: "CASCADE" }),
+      (0, typeorm_12.JoinColumn)({ name: "group_id" }),
       __metadata("design:type", product_option_group_entity_1.ProductOptionGroup)
     ], ProductOption.prototype, "group", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 100 }),
+      (0, typeorm_12.Column)({ length: 100 }),
       __metadata("design:type", String)
     ], ProductOption.prototype, "name", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "ingredient_product_id", nullable: true }),
+      (0, typeorm_12.Column)({ name: "ingredient_product_id", nullable: true }),
       __metadata("design:type", Object)
     ], ProductOption.prototype, "ingredientProductId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => product_entity_1.Product, { nullable: true }),
-      (0, typeorm_1.JoinColumn)({ name: "ingredient_product_id" }),
+      (0, typeorm_12.ManyToOne)(() => product_entity_1.Product, { nullable: true }),
+      (0, typeorm_12.JoinColumn)({ name: "ingredient_product_id" }),
       __metadata("design:type", Object)
     ], ProductOption.prototype, "ingredient", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 3 }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 3 }),
       __metadata("design:type", Number)
     ], ProductOption.prototype, "quantity", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "enum", enum: enums_1.StockUnit, default: enums_1.StockUnit.G }),
+      (0, typeorm_12.Column)({ type: "enum", enum: enums_1.StockUnit, default: enums_1.StockUnit.G }),
       __metadata("design:type", String)
     ], ProductOption.prototype, "unit", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "unit_cost", type: "decimal", precision: 12, scale: 2, default: 0 }),
+      (0, typeorm_12.Column)({ name: "unit_cost", type: "decimal", precision: 12, scale: 2, default: 0 }),
       __metadata("design:type", Number)
     ], ProductOption.prototype, "unitCost", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "unit_price", type: "decimal", precision: 12, scale: 2, default: 0 }),
+      (0, typeorm_12.Column)({ name: "unit_price", type: "decimal", precision: 12, scale: 2, default: 0 }),
       __metadata("design:type", Number)
     ], ProductOption.prototype, "unitPrice", void 0);
     exports2.ProductOption = ProductOption = __decorate([
-      (0, typeorm_1.Entity)("product_options")
+      (0, typeorm_12.Entity)("product_options")
     ], ProductOption);
   }
 });
@@ -1918,7 +1757,7 @@ var require_product_option_group_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ProductOptionGroup = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var enums_1 = require_enums();
     var product_entity_1 = require_product_entity();
     var product_option_entity_1 = require_product_option_entity();
@@ -1935,44 +1774,44 @@ var require_product_option_group_entity = __commonJS({
     };
     exports2.ProductOptionGroup = ProductOptionGroup;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], ProductOptionGroup.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "product_id" }),
+      (0, typeorm_12.Column)({ name: "product_id" }),
       __metadata("design:type", Number)
     ], ProductOptionGroup.prototype, "productId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => product_entity_1.Product, (product) => product.optionGroups, { onDelete: "CASCADE" }),
-      (0, typeorm_1.JoinColumn)({ name: "product_id" }),
+      (0, typeorm_12.ManyToOne)(() => product_entity_1.Product, (product) => product.optionGroups, { onDelete: "CASCADE" }),
+      (0, typeorm_12.JoinColumn)({ name: "product_id" }),
       __metadata("design:type", product_entity_1.Product)
     ], ProductOptionGroup.prototype, "product", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 100 }),
+      (0, typeorm_12.Column)({ length: 100 }),
       __metadata("design:type", String)
     ], ProductOptionGroup.prototype, "name", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "enum", enum: enums_1.OptionGroupKind }),
+      (0, typeorm_12.Column)({ type: "enum", enum: enums_1.OptionGroupKind }),
       __metadata("design:type", String)
     ], ProductOptionGroup.prototype, "kind", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "min_select", type: "int", default: 1 }),
+      (0, typeorm_12.Column)({ name: "min_select", type: "int", default: 1 }),
       __metadata("design:type", Number)
     ], ProductOptionGroup.prototype, "minSelect", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "max_select", type: "int", default: 1 }),
+      (0, typeorm_12.Column)({ name: "max_select", type: "int", default: 1 }),
       __metadata("design:type", Number)
     ], ProductOptionGroup.prototype, "maxSelect", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "sort_order", type: "int", default: 0 }),
+      (0, typeorm_12.Column)({ name: "sort_order", type: "int", default: 0 }),
       __metadata("design:type", Number)
     ], ProductOptionGroup.prototype, "sortOrder", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => product_option_entity_1.ProductOption, (option) => option.group, { cascade: true }),
+      (0, typeorm_12.OneToMany)(() => product_option_entity_1.ProductOption, (option) => option.group, { cascade: true }),
       __metadata("design:type", Array)
     ], ProductOptionGroup.prototype, "options", void 0);
     exports2.ProductOptionGroup = ProductOptionGroup = __decorate([
-      (0, typeorm_1.Entity)("product_option_groups")
+      (0, typeorm_12.Entity)("product_option_groups")
     ], ProductOptionGroup);
   }
 });
@@ -1992,7 +1831,7 @@ var require_product_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Product = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var enums_1 = require_enums();
     var store_entity_1 = require_store_entity();
     var category_entity_1 = require_category_entity();
@@ -2036,135 +1875,135 @@ var require_product_entity = __commonJS({
     };
     exports2.Product = Product;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], Product.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id" }),
+      (0, typeorm_12.Column)({ name: "store_id" }),
       __metadata("design:type", Number)
     ], Product.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], Product.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 50 }),
+      (0, typeorm_12.Column)({ length: 50 }),
       __metadata("design:type", String)
     ], Product.prototype, "sku", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 200 }),
+      (0, typeorm_12.Column)({ length: 200 }),
       __metadata("design:type", String)
     ], Product.prototype, "name", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", String)
     ], Product.prototype, "description", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "image_key", type: "varchar", length: 500, nullable: true }),
+      (0, typeorm_12.Column)({ name: "image_key", type: "varchar", length: 500, nullable: true }),
       __metadata("design:type", Object)
     ], Product.prototype, "imageKey", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "product_type", type: "enum", enum: enums_1.ProductType, default: enums_1.ProductType.SIMPLE }),
+      (0, typeorm_12.Column)({ name: "product_type", type: "enum", enum: enums_1.ProductType, default: enums_1.ProductType.SIMPLE }),
       __metadata("design:type", String)
     ], Product.prototype, "productType", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "stock_unit", type: "enum", enum: enums_1.StockUnit, default: enums_1.StockUnit.UNIT }),
+      (0, typeorm_12.Column)({ name: "stock_unit", type: "enum", enum: enums_1.StockUnit, default: enums_1.StockUnit.UNIT }),
       __metadata("design:type", String)
     ], Product.prototype, "stockUnit", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "base_product_id", nullable: true }),
+      (0, typeorm_12.Column)({ name: "base_product_id", nullable: true }),
       __metadata("design:type", Object)
     ], Product.prototype, "baseProductId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => Product, { nullable: true }),
-      (0, typeorm_1.JoinColumn)({ name: "base_product_id" }),
+      (0, typeorm_12.ManyToOne)(() => Product, { nullable: true }),
+      (0, typeorm_12.JoinColumn)({ name: "base_product_id" }),
       __metadata("design:type", Object)
     ], Product.prototype, "baseProduct", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "portion_size", type: "decimal", precision: 12, scale: 3, nullable: true }),
+      (0, typeorm_12.Column)({ name: "portion_size", type: "decimal", precision: 12, scale: 3, nullable: true }),
       __metadata("design:type", Object)
     ], Product.prototype, "portionSize", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "recipe_batch_size", type: "decimal", precision: 12, scale: 3, nullable: true }),
+      (0, typeorm_12.Column)({ name: "recipe_batch_size", type: "decimal", precision: 12, scale: 3, nullable: true }),
       __metadata("design:type", Object)
     ], Product.prototype, "recipeBatchSize", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "scoop_count", type: "int", nullable: true }),
+      (0, typeorm_12.Column)({ name: "scoop_count", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], Product.prototype, "scoopCount", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "variable_scoops", default: false }),
+      (0, typeorm_12.Column)({ name: "variable_scoops", default: false }),
       __metadata("design:type", Boolean)
     ], Product.prototype, "variableScoops", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "scoop_prices", type: "json", nullable: true }),
+      (0, typeorm_12.Column)({ name: "scoop_prices", type: "json", nullable: true }),
       __metadata("design:type", Object)
     ], Product.prototype, "scoopPrices", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "sale_price", type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ name: "sale_price", type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], Product.prototype, "salePrice", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "cost_price", type: "decimal", precision: 12, scale: 2, default: 0 }),
+      (0, typeorm_12.Column)({ name: "cost_price", type: "decimal", precision: 12, scale: 2, default: 0 }),
       __metadata("design:type", Number)
     ], Product.prototype, "costPrice", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 3, default: 0 }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 3, default: 0 }),
       __metadata("design:type", Number)
     ], Product.prototype, "stock", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "min_stock", type: "decimal", precision: 12, scale: 3, default: 0 }),
+      (0, typeorm_12.Column)({ name: "min_stock", type: "decimal", precision: 12, scale: 3, default: 0 }),
       __metadata("design:type", Number)
     ], Product.prototype, "minStock", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "category_id", nullable: true }),
+      (0, typeorm_12.Column)({ name: "category_id", nullable: true }),
       __metadata("design:type", Number)
     ], Product.prototype, "categoryId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => category_entity_1.Category, (category) => category.products, { nullable: true }),
-      (0, typeorm_1.JoinColumn)({ name: "category_id" }),
+      (0, typeorm_12.ManyToOne)(() => category_entity_1.Category, (category) => category.products, { nullable: true }),
+      (0, typeorm_12.JoinColumn)({ name: "category_id" }),
       __metadata("design:type", category_entity_1.Category)
     ], Product.prototype, "category", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ default: true }),
+      (0, typeorm_12.Column)({ default: true }),
       __metadata("design:type", Boolean)
     ], Product.prototype, "active", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "visible_in_pos", default: true }),
+      (0, typeorm_12.Column)({ name: "visible_in_pos", default: true }),
       __metadata("design:type", Boolean)
     ], Product.prototype, "visibleInPos", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => product_recipe_entity_1.ProductRecipe, (recipe) => recipe.product),
+      (0, typeorm_12.OneToMany)(() => product_recipe_entity_1.ProductRecipe, (recipe) => recipe.product),
       __metadata("design:type", Array)
     ], Product.prototype, "recipe", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => product_option_group_entity_1.ProductOptionGroup, (group) => group.product),
+      (0, typeorm_12.OneToMany)(() => product_option_group_entity_1.ProductOptionGroup, (group) => group.product),
       __metadata("design:type", Array)
     ], Product.prototype, "optionGroups", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => inventory_movement_entity_1.InventoryMovement, (movement) => movement.product),
+      (0, typeorm_12.OneToMany)(() => inventory_movement_entity_1.InventoryMovement, (movement) => movement.product),
       __metadata("design:type", Array)
     ], Product.prototype, "movements", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => sale_item_entity_1.SaleItem, (item) => item.product),
+      (0, typeorm_12.OneToMany)(() => sale_item_entity_1.SaleItem, (item) => item.product),
       __metadata("design:type", Array)
     ], Product.prototype, "saleItems", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => purchase_item_entity_1.PurchaseItem, (item) => item.product),
+      (0, typeorm_12.OneToMany)(() => purchase_item_entity_1.PurchaseItem, (item) => item.product),
       __metadata("design:type", Array)
     ], Product.prototype, "purchaseItems", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], Product.prototype, "createdAt", void 0);
     __decorate([
-      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      (0, typeorm_12.UpdateDateColumn)({ name: "updated_at" }),
       __metadata("design:type", Date)
     ], Product.prototype, "updatedAt", void 0);
     exports2.Product = Product = __decorate([
-      (0, typeorm_1.Entity)("products"),
-      (0, typeorm_1.Unique)(["storeId", "sku"])
+      (0, typeorm_12.Entity)("products"),
+      (0, typeorm_12.Unique)(["storeId", "sku"])
     ], Product);
   }
 });
@@ -2184,7 +2023,7 @@ var require_sale_item_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SaleItem = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var sale_entity_1 = require_sale_entity();
     var product_entity_1 = require_product_entity();
     var SaleItem = class SaleItem {
@@ -2203,57 +2042,57 @@ var require_sale_item_entity = __commonJS({
     };
     exports2.SaleItem = SaleItem;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], SaleItem.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "sale_id" }),
+      (0, typeorm_12.Column)({ name: "sale_id" }),
       __metadata("design:type", Number)
     ], SaleItem.prototype, "saleId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => sale_entity_1.Sale, (sale) => sale.items, { onDelete: "CASCADE" }),
-      (0, typeorm_1.JoinColumn)({ name: "sale_id" }),
+      (0, typeorm_12.ManyToOne)(() => sale_entity_1.Sale, (sale) => sale.items, { onDelete: "CASCADE" }),
+      (0, typeorm_12.JoinColumn)({ name: "sale_id" }),
       __metadata("design:type", sale_entity_1.Sale)
     ], SaleItem.prototype, "sale", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "product_id" }),
+      (0, typeorm_12.Column)({ name: "product_id" }),
       __metadata("design:type", Number)
     ], SaleItem.prototype, "productId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => product_entity_1.Product, (product) => product.saleItems),
-      (0, typeorm_1.JoinColumn)({ name: "product_id" }),
+      (0, typeorm_12.ManyToOne)(() => product_entity_1.Product, (product) => product.saleItems),
+      (0, typeorm_12.JoinColumn)({ name: "product_id" }),
       __metadata("design:type", product_entity_1.Product)
     ], SaleItem.prototype, "product", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 200 }),
+      (0, typeorm_12.Column)({ length: 200 }),
       __metadata("design:type", String)
     ], SaleItem.prototype, "productName", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "int" }),
+      (0, typeorm_12.Column)({ type: "int" }),
       __metadata("design:type", Number)
     ], SaleItem.prototype, "quantity", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "unit_price", type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ name: "unit_price", type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], SaleItem.prototype, "unitPrice", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "unit_cost", type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ name: "unit_cost", type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], SaleItem.prototype, "unitCost", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], SaleItem.prototype, "subtotal", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "selected_options", type: "json", nullable: true }),
+      (0, typeorm_12.Column)({ name: "selected_options", type: "json", nullable: true }),
       __metadata("design:type", Object)
     ], SaleItem.prototype, "selectedOptions", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "portion_scoop_count", type: "int", nullable: true }),
+      (0, typeorm_12.Column)({ name: "portion_scoop_count", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], SaleItem.prototype, "portionScoopCount", void 0);
     exports2.SaleItem = SaleItem = __decorate([
-      (0, typeorm_1.Entity)("sale_items")
+      (0, typeorm_12.Entity)("sale_items")
     ], SaleItem);
   }
 });
@@ -2273,7 +2112,7 @@ var require_sale_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Sale = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var enums_1 = require_enums();
     var store_entity_1 = require_store_entity();
     var user_entity_1 = require_user_entity();
@@ -2308,44 +2147,44 @@ var require_sale_entity = __commonJS({
     };
     exports2.Sale = Sale;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], Sale.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id" }),
+      (0, typeorm_12.Column)({ name: "store_id" }),
       __metadata("design:type", Number)
     ], Sale.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], Sale.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "ticket_number", length: 30 }),
+      (0, typeorm_12.Column)({ name: "ticket_number", length: 30 }),
       __metadata("design:type", String)
     ], Sale.prototype, "ticketNumber", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], Sale.prototype, "subtotal", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "tax_amount", type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ name: "tax_amount", type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], Sale.prototype, "taxAmount", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], Sale.prototype, "total", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 2, default: 0 }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 2, default: 0 }),
       __metadata("design:type", Number)
     ], Sale.prototype, "profit", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "payment_method", type: "enum", enum: enums_1.PaymentMethod, default: enums_1.PaymentMethod.CASH }),
+      (0, typeorm_12.Column)({ name: "payment_method", type: "enum", enum: enums_1.PaymentMethod, default: enums_1.PaymentMethod.CASH }),
       __metadata("design:type", String)
     ], Sale.prototype, "paymentMethod", void 0);
     __decorate([
-      (0, typeorm_1.Column)({
+      (0, typeorm_12.Column)({
         type: "enum",
         enum: enums_1.SaleStatus,
         default: enums_1.SaleStatus.COMPLETED
@@ -2353,68 +2192,68 @@ var require_sale_entity = __commonJS({
       __metadata("design:type", String)
     ], Sale.prototype, "status", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "amount_paid", type: "decimal", precision: 12, scale: 2, nullable: true }),
+      (0, typeorm_12.Column)({ name: "amount_paid", type: "decimal", precision: 12, scale: 2, nullable: true }),
       __metadata("design:type", Number)
     ], Sale.prototype, "amountPaid", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 2, nullable: true }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 2, nullable: true }),
       __metadata("design:type", Number)
     ], Sale.prototype, "change", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "customer_id", type: "int", nullable: true }),
+      (0, typeorm_12.Column)({ name: "customer_id", type: "int", nullable: true }),
       __metadata("design:type", Number)
     ], Sale.prototype, "customerId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => customer_entity_1.Customer, (customer) => customer.sales, { nullable: true }),
-      (0, typeorm_1.JoinColumn)({ name: "customer_id" }),
+      (0, typeorm_12.ManyToOne)(() => customer_entity_1.Customer, (customer) => customer.sales, { nullable: true }),
+      (0, typeorm_12.JoinColumn)({ name: "customer_id" }),
       __metadata("design:type", customer_entity_1.Customer)
     ], Sale.prototype, "customer", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "user_id" }),
+      (0, typeorm_12.Column)({ name: "user_id" }),
       __metadata("design:type", Number)
     ], Sale.prototype, "userId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => user_entity_1.User, (user) => user.sales),
-      (0, typeorm_1.JoinColumn)({ name: "user_id" }),
+      (0, typeorm_12.ManyToOne)(() => user_entity_1.User, (user) => user.sales),
+      (0, typeorm_12.JoinColumn)({ name: "user_id" }),
       __metadata("design:type", user_entity_1.User)
     ], Sale.prototype, "user", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "cash_session_id" }),
+      (0, typeorm_12.Column)({ name: "cash_session_id" }),
       __metadata("design:type", Number)
     ], Sale.prototype, "cashSessionId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => cash_session_entity_1.CashSession, (session) => session.sales),
-      (0, typeorm_1.JoinColumn)({ name: "cash_session_id" }),
+      (0, typeorm_12.ManyToOne)(() => cash_session_entity_1.CashSession, (session) => session.sales),
+      (0, typeorm_12.JoinColumn)({ name: "cash_session_id" }),
       __metadata("design:type", cash_session_entity_1.CashSession)
     ], Sale.prototype, "cashSession", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "reversed_at", type: "datetime", nullable: true }),
+      (0, typeorm_12.Column)({ name: "reversed_at", type: "datetime", nullable: true }),
       __metadata("design:type", Object)
     ], Sale.prototype, "reversedAt", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "reversed_by_user_id", type: "int", nullable: true }),
+      (0, typeorm_12.Column)({ name: "reversed_by_user_id", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], Sale.prototype, "reversedByUserId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => user_entity_1.User, { nullable: true }),
-      (0, typeorm_1.JoinColumn)({ name: "reversed_by_user_id" }),
+      (0, typeorm_12.ManyToOne)(() => user_entity_1.User, { nullable: true }),
+      (0, typeorm_12.JoinColumn)({ name: "reversed_by_user_id" }),
       __metadata("design:type", Object)
     ], Sale.prototype, "reversedByUser", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "reverse_reason", type: "varchar", length: 500, nullable: true }),
+      (0, typeorm_12.Column)({ name: "reverse_reason", type: "varchar", length: 500, nullable: true }),
       __metadata("design:type", Object)
     ], Sale.prototype, "reverseReason", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => sale_item_entity_1.SaleItem, (item) => item.sale, { cascade: true }),
+      (0, typeorm_12.OneToMany)(() => sale_item_entity_1.SaleItem, (item) => item.sale, { cascade: true }),
       __metadata("design:type", Array)
     ], Sale.prototype, "items", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], Sale.prototype, "createdAt", void 0);
     exports2.Sale = Sale = __decorate([
-      (0, typeorm_1.Entity)("sales"),
-      (0, typeorm_1.Unique)(["storeId", "ticketNumber"])
+      (0, typeorm_12.Entity)("sales"),
+      (0, typeorm_12.Unique)(["storeId", "ticketNumber"])
     ], Sale);
   }
 });
@@ -2434,7 +2273,7 @@ var require_cash_session_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CashSession = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var enums_1 = require_enums();
     var store_entity_1 = require_store_entity();
     var user_entity_1 = require_user_entity();
@@ -2457,65 +2296,65 @@ var require_cash_session_entity = __commonJS({
     };
     exports2.CashSession = CashSession;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], CashSession.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id" }),
+      (0, typeorm_12.Column)({ name: "store_id" }),
       __metadata("design:type", Number)
     ], CashSession.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], CashSession.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "opening_amount", type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ name: "opening_amount", type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], CashSession.prototype, "openingAmount", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "closing_amount", type: "decimal", precision: 12, scale: 2, nullable: true }),
+      (0, typeorm_12.Column)({ name: "closing_amount", type: "decimal", precision: 12, scale: 2, nullable: true }),
       __metadata("design:type", Number)
     ], CashSession.prototype, "closingAmount", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "expected_amount", type: "decimal", precision: 12, scale: 2, nullable: true }),
+      (0, typeorm_12.Column)({ name: "expected_amount", type: "decimal", precision: 12, scale: 2, nullable: true }),
       __metadata("design:type", Number)
     ], CashSession.prototype, "expectedAmount", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "decimal", precision: 12, scale: 2, nullable: true }),
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 2, nullable: true }),
       __metadata("design:type", Number)
     ], CashSession.prototype, "difference", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "enum", enum: enums_1.CashSessionStatus, default: enums_1.CashSessionStatus.OPEN }),
+      (0, typeorm_12.Column)({ type: "enum", enum: enums_1.CashSessionStatus, default: enums_1.CashSessionStatus.OPEN }),
       __metadata("design:type", String)
     ], CashSession.prototype, "status", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", String)
     ], CashSession.prototype, "notes", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "user_id" }),
+      (0, typeorm_12.Column)({ name: "user_id" }),
       __metadata("design:type", Number)
     ], CashSession.prototype, "userId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => user_entity_1.User, (user) => user.cashSessions),
-      (0, typeorm_1.JoinColumn)({ name: "user_id" }),
+      (0, typeorm_12.ManyToOne)(() => user_entity_1.User, (user) => user.cashSessions),
+      (0, typeorm_12.JoinColumn)({ name: "user_id" }),
       __metadata("design:type", user_entity_1.User)
     ], CashSession.prototype, "user", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => sale_entity_1.Sale, (sale) => sale.cashSession),
+      (0, typeorm_12.OneToMany)(() => sale_entity_1.Sale, (sale) => sale.cashSession),
       __metadata("design:type", Array)
     ], CashSession.prototype, "sales", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "opened_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "opened_at" }),
       __metadata("design:type", Date)
     ], CashSession.prototype, "openedAt", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "closed_at", type: "datetime", nullable: true }),
+      (0, typeorm_12.Column)({ name: "closed_at", type: "datetime", nullable: true }),
       __metadata("design:type", Date)
     ], CashSession.prototype, "closedAt", void 0);
     exports2.CashSession = CashSession = __decorate([
-      (0, typeorm_1.Entity)("cash_sessions")
+      (0, typeorm_12.Entity)("cash_sessions")
     ], CashSession);
   }
 });
@@ -2535,7 +2374,7 @@ var require_user_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.User = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var enums_1 = require_enums();
     var store_entity_1 = require_store_entity();
     var cash_session_entity_1 = require_cash_session_entity();
@@ -2556,56 +2395,56 @@ var require_user_entity = __commonJS({
     };
     exports2.User = User;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], User.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 100 }),
+      (0, typeorm_12.Column)({ length: 100 }),
       __metadata("design:type", String)
     ], User.prototype, "name", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ unique: true, length: 150 }),
+      (0, typeorm_12.Column)({ unique: true, length: 150 }),
       __metadata("design:type", String)
     ], User.prototype, "email", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "password_hash" }),
+      (0, typeorm_12.Column)({ name: "password_hash" }),
       __metadata("design:type", String)
     ], User.prototype, "passwordHash", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "enum", enum: enums_1.UserRole, default: enums_1.UserRole.CASHIER }),
+      (0, typeorm_12.Column)({ type: "enum", enum: enums_1.UserRole, default: enums_1.UserRole.CASHIER }),
       __metadata("design:type", String)
     ], User.prototype, "role", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id", nullable: true }),
+      (0, typeorm_12.Column)({ name: "store_id", nullable: true }),
       __metadata("design:type", Object)
     ], User.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store, (store) => store.users, { nullable: true }),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store, (store) => store.users, { nullable: true }),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], User.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ default: true }),
+      (0, typeorm_12.Column)({ default: true }),
       __metadata("design:type", Boolean)
     ], User.prototype, "active", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => cash_session_entity_1.CashSession, (session) => session.user),
+      (0, typeorm_12.OneToMany)(() => cash_session_entity_1.CashSession, (session) => session.user),
       __metadata("design:type", Array)
     ], User.prototype, "cashSessions", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => sale_entity_1.Sale, (sale) => sale.user),
+      (0, typeorm_12.OneToMany)(() => sale_entity_1.Sale, (sale) => sale.user),
       __metadata("design:type", Array)
     ], User.prototype, "sales", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], User.prototype, "createdAt", void 0);
     __decorate([
-      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      (0, typeorm_12.UpdateDateColumn)({ name: "updated_at" }),
       __metadata("design:type", Date)
     ], User.prototype, "updatedAt", void 0);
     exports2.User = User = __decorate([
-      (0, typeorm_1.Entity)("users")
+      (0, typeorm_12.Entity)("users")
     ], User);
   }
 });
@@ -2669,7 +2508,7 @@ var require_auth_service = __commonJS({
     exports2.AuthService = void 0;
     var common_1 = require("@nestjs/common");
     var jwt_1 = require("@nestjs/jwt");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var bcrypt = __importStar(require("bcryptjs"));
     var user_entity_1 = require_user_entity();
@@ -2739,7 +2578,7 @@ var require_auth_service = __commonJS({
     exports2.AuthService = AuthService;
     exports2.AuthService = AuthService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
+      __param(0, (0, typeorm_12.InjectRepository)(user_entity_1.User)),
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
         jwt_1.JwtService
@@ -3016,7 +2855,7 @@ var require_auth_module = __commonJS({
     var common_1 = require("@nestjs/common");
     var jwt_1 = require("@nestjs/jwt");
     var passport_1 = require("@nestjs/passport");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var config_1 = require("@nestjs/config");
     var auth_service_1 = require_auth_service();
     var auth_controller_1 = require_auth_controller();
@@ -3028,7 +2867,7 @@ var require_auth_module = __commonJS({
     exports2.AuthModule = AuthModule = __decorate([
       (0, common_1.Module)({
         imports: [
-          typeorm_1.TypeOrmModule.forFeature([user_entity_1.User]),
+          typeorm_12.TypeOrmModule.forFeature([user_entity_1.User]),
           passport_1.PassportModule.register({ defaultStrategy: "jwt" }),
           jwt_1.JwtModule.registerAsync({
             imports: [config_1.ConfigModule],
@@ -3191,7 +3030,7 @@ var require_users_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.UsersService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var bcrypt = __importStar(require("bcryptjs"));
     var user_entity_1 = require_user_entity();
@@ -3317,7 +3156,7 @@ var require_users_service = __commonJS({
     exports2.UsersService = UsersService;
     exports2.UsersService = UsersService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
+      __param(0, (0, typeorm_12.InjectRepository)(user_entity_1.User)),
       __metadata("design:paramtypes", [typeorm_2.Repository])
     ], UsersService);
   }
@@ -3644,7 +3483,7 @@ var require_users_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.UsersModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var user_entity_1 = require_user_entity();
     var users_service_1 = require_users_service();
     var users_controller_1 = require_users_controller();
@@ -3653,7 +3492,7 @@ var require_users_module = __commonJS({
     exports2.UsersModule = UsersModule;
     exports2.UsersModule = UsersModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([user_entity_1.User])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([user_entity_1.User])],
         controllers: [users_controller_1.UsersController],
         providers: [users_service_1.UsersService],
         exports: [users_service_1.UsersService]
@@ -3683,7 +3522,7 @@ var require_stores_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.StoresService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var store_entity_1 = require_store_entity();
     var setting_entity_1 = require_setting_entity();
@@ -3737,8 +3576,8 @@ var require_stores_service = __commonJS({
     exports2.StoresService = StoresService;
     exports2.StoresService = StoresService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(store_entity_1.Store)),
-      __param(1, (0, typeorm_1.InjectRepository)(setting_entity_1.Setting)),
+      __param(0, (0, typeorm_12.InjectRepository)(store_entity_1.Store)),
+      __param(1, (0, typeorm_12.InjectRepository)(setting_entity_1.Setting)),
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
         typeorm_2.Repository
@@ -3935,7 +3774,7 @@ var require_stores_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.StoresModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var store_entity_1 = require_store_entity();
     var setting_entity_1 = require_setting_entity();
     var stores_service_1 = require_stores_service();
@@ -3945,7 +3784,7 @@ var require_stores_module = __commonJS({
     exports2.StoresModule = StoresModule;
     exports2.StoresModule = StoresModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([store_entity_1.Store, setting_entity_1.Setting])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([store_entity_1.Store, setting_entity_1.Setting])],
         controllers: [stores_controller_1.StoresController],
         providers: [stores_service_1.StoresService],
         exports: [stores_service_1.StoresService]
@@ -3975,7 +3814,7 @@ var require_categories_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CategoriesService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var category_entity_1 = require_category_entity();
     var store_context_util_1 = require_store_context_util();
@@ -4032,7 +3871,7 @@ var require_categories_service = __commonJS({
     exports2.CategoriesService = CategoriesService;
     exports2.CategoriesService = CategoriesService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(category_entity_1.Category)),
+      __param(0, (0, typeorm_12.InjectRepository)(category_entity_1.Category)),
       __metadata("design:paramtypes", [typeorm_2.Repository])
     ], CategoriesService);
   }
@@ -4223,7 +4062,7 @@ var require_categories_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CategoriesModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var category_entity_1 = require_category_entity();
     var categories_service_1 = require_categories_service();
     var categories_controller_1 = require_categories_controller();
@@ -4232,7 +4071,7 @@ var require_categories_module = __commonJS({
     exports2.CategoriesModule = CategoriesModule;
     exports2.CategoriesModule = CategoriesModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([category_entity_1.Category])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([category_entity_1.Category])],
         controllers: [categories_controller_1.CategoriesController],
         providers: [categories_service_1.CategoriesService],
         exports: [categories_service_1.CategoriesService]
@@ -4852,6 +4691,7 @@ var require_storage_service = __commonJS({
       client = null;
       bucket = "imagenes";
       configured = false;
+      publicBaseUrl = null;
       constructor(config) {
         this.config = config;
         const endpoint = config.get("SUPABASE_S3_ENDPOINT")?.trim();
@@ -4859,6 +4699,10 @@ var require_storage_service = __commonJS({
         const secretAccessKey = config.get("SUPABASE_S3_SECRET_ACCESS_KEY")?.trim();
         const region = config.get("SUPABASE_S3_REGION")?.trim() ?? "us-east-1";
         this.bucket = config.get("SUPABASE_STORAGE_BUCKET")?.trim() ?? "imagenes";
+        const explicitPublic = config.get("SUPABASE_PUBLIC_URL")?.trim();
+        if (explicitPublic) {
+          this.publicBaseUrl = explicitPublic.replace(/\/$/, "");
+        }
         if (endpoint && accessKeyId && secretAccessKey) {
           this.client = new client_s3_1.S3Client({
             forcePathStyle: true,
@@ -4869,7 +4713,7 @@ var require_storage_service = __commonJS({
             responseChecksumValidation: "WHEN_REQUIRED"
           });
           this.configured = true;
-          this.logger.log(`Storage S3 listo (bucket: ${this.bucket}, region: ${region})`);
+          this.logger.log(`Storage S3 listo (bucket: ${this.bucket}, region: ${region}` + (this.publicBaseUrl ? ", URL p\xFAblica activa" : "") + ")");
         } else {
           this.logger.warn("Supabase S3 no configurado \u2014 revisa SUPABASE_S3_* en .env / Vercel");
         }
@@ -4920,6 +4764,17 @@ var require_storage_service = __commonJS({
           throw new common_1.ServiceUnavailableException(`No se pudo subir la imagen a Supabase: ${detail}. Verifica en Supabase \u2192 Storage \u2192 S3 que endpoint, regi\xF3n y claves coincidan.`);
         }
         return key;
+      }
+      getPublicUrl(key) {
+        if (!key || !this.publicBaseUrl)
+          return null;
+        return `${this.publicBaseUrl}/${key.replace(/^\//, "")}`;
+      }
+      async getObjectUrl(key, expiresIn = 3600 * 12) {
+        const publicUrl = this.getPublicUrl(key);
+        if (publicUrl)
+          return publicUrl;
+        return this.getSignedUrl(key, expiresIn);
       }
       async getSignedUrl(key, expiresIn = 3600) {
         this.assertConfigured();
@@ -4974,7 +4829,7 @@ var require_products_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ProductsService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var product_entity_1 = require_product_entity();
     var product_recipe_entity_1 = require_product_recipe_entity();
@@ -5009,15 +4864,18 @@ var require_products_service = __commonJS({
       }
       async enrichProduct(product, sellableUnits, options) {
         const { imageKey, ...rest } = product;
+        const hasImage = Boolean(imageKey);
         const enriched = {
           ...rest,
+          hasImage,
           sellableUnits: sellableUnits ?? void 0,
           lowStock: (0, product_stock_util_1.isLowStock)(product)
         };
         if (!options?.skipImageUrl && imageKey && this.storage.isConfigured()) {
           try {
-            enriched.imageUrl = await this.storage.getSignedUrl(imageKey);
-          } catch {
+            enriched.imageUrl = await this.storage.getObjectUrl(imageKey);
+          } catch (err) {
+            console.warn(`[products] No se pudo firmar imagen ${imageKey}:`, err);
           }
         }
         return enriched;
@@ -5515,7 +5373,7 @@ var require_products_service = __commonJS({
         if (previousKey && previousKey !== imageKey) {
           await this.storage.deleteObject(previousKey);
         }
-        const imageUrl = await this.storage.getSignedUrl(imageKey);
+        const imageUrl = await this.storage.getObjectUrl(imageKey);
         return { imageUrl };
       }
       async getImageUrl(id, ctx) {
@@ -5528,7 +5386,7 @@ var require_products_service = __commonJS({
         if (!product.imageKey) {
           throw new common_1.NotFoundException("Este producto no tiene imagen");
         }
-        const imageUrl = await this.storage.getSignedUrl(product.imageKey);
+        const imageUrl = await this.storage.getObjectUrl(product.imageKey);
         return { imageUrl };
       }
       async removeImage(id, ctx) {
@@ -5549,8 +5407,8 @@ var require_products_service = __commonJS({
     exports2.ProductsService = ProductsService;
     exports2.ProductsService = ProductsService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(product_entity_1.Product)),
-      __param(1, (0, typeorm_1.InjectRepository)(product_recipe_entity_1.ProductRecipe)),
+      __param(0, (0, typeorm_12.InjectRepository)(product_entity_1.Product)),
+      __param(1, (0, typeorm_12.InjectRepository)(product_recipe_entity_1.ProductRecipe)),
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
         typeorm_2.Repository,
@@ -22837,7 +22695,7 @@ var require_products_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ProductsModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var product_entity_1 = require_product_entity();
     var product_recipe_entity_1 = require_product_recipe_entity();
     var product_option_group_entity_1 = require_product_option_group_entity();
@@ -22849,7 +22707,7 @@ var require_products_module = __commonJS({
     exports2.ProductsModule = ProductsModule;
     exports2.ProductsModule = ProductsModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([product_entity_1.Product, product_recipe_entity_1.ProductRecipe, product_option_group_entity_1.ProductOptionGroup, product_option_entity_1.ProductOption])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([product_entity_1.Product, product_recipe_entity_1.ProductRecipe, product_option_group_entity_1.ProductOptionGroup, product_option_entity_1.ProductOption])],
         controllers: [products_controller_1.ProductsController],
         providers: [products_service_1.ProductsService],
         exports: [products_service_1.ProductsService]
@@ -22879,7 +22737,7 @@ var require_customers_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CustomersService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var customer_entity_1 = require_customer_entity();
     var store_context_util_1 = require_store_context_util();
@@ -22928,7 +22786,7 @@ var require_customers_service = __commonJS({
     exports2.CustomersService = CustomersService;
     exports2.CustomersService = CustomersService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(customer_entity_1.Customer)),
+      __param(0, (0, typeorm_12.InjectRepository)(customer_entity_1.Customer)),
       __metadata("design:paramtypes", [typeorm_2.Repository])
     ], CustomersService);
   }
@@ -23128,7 +22986,7 @@ var require_customers_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CustomersModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var customer_entity_1 = require_customer_entity();
     var customers_service_1 = require_customers_service();
     var customers_controller_1 = require_customers_controller();
@@ -23137,7 +22995,7 @@ var require_customers_module = __commonJS({
     exports2.CustomersModule = CustomersModule;
     exports2.CustomersModule = CustomersModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([customer_entity_1.Customer])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([customer_entity_1.Customer])],
         controllers: [customers_controller_1.CustomersController],
         providers: [customers_service_1.CustomersService],
         exports: [customers_service_1.CustomersService]
@@ -23167,7 +23025,7 @@ var require_suppliers_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SuppliersService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var supplier_entity_1 = require_supplier_entity();
     var store_context_util_1 = require_store_context_util();
@@ -23220,7 +23078,7 @@ var require_suppliers_service = __commonJS({
     exports2.SuppliersService = SuppliersService;
     exports2.SuppliersService = SuppliersService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(supplier_entity_1.Supplier)),
+      __param(0, (0, typeorm_12.InjectRepository)(supplier_entity_1.Supplier)),
       __metadata("design:paramtypes", [typeorm_2.Repository])
     ], SuppliersService);
   }
@@ -23461,7 +23319,7 @@ var require_suppliers_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SuppliersModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var supplier_entity_1 = require_supplier_entity();
     var suppliers_service_1 = require_suppliers_service();
     var suppliers_controller_1 = require_suppliers_controller();
@@ -23470,7 +23328,7 @@ var require_suppliers_module = __commonJS({
     exports2.SuppliersModule = SuppliersModule;
     exports2.SuppliersModule = SuppliersModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([supplier_entity_1.Supplier])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([supplier_entity_1.Supplier])],
         controllers: [suppliers_controller_1.SuppliersController],
         providers: [suppliers_service_1.SuppliersService],
         exports: [suppliers_service_1.SuppliersService]
@@ -23500,7 +23358,7 @@ var require_settings_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SettingsService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var setting_entity_1 = require_setting_entity();
     var store_context_util_1 = require_store_context_util();
@@ -23534,7 +23392,7 @@ var require_settings_service = __commonJS({
     exports2.SettingsService = SettingsService;
     exports2.SettingsService = SettingsService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(setting_entity_1.Setting)),
+      __param(0, (0, typeorm_12.InjectRepository)(setting_entity_1.Setting)),
       __metadata("design:paramtypes", [typeorm_2.Repository])
     ], SettingsService);
   }
@@ -23681,7 +23539,7 @@ var require_settings_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SettingsModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var setting_entity_1 = require_setting_entity();
     var settings_service_1 = require_settings_service();
     var settings_controller_1 = require_settings_controller();
@@ -23690,7 +23548,7 @@ var require_settings_module = __commonJS({
     exports2.SettingsModule = SettingsModule;
     exports2.SettingsModule = SettingsModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([setting_entity_1.Setting])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([setting_entity_1.Setting])],
         controllers: [settings_controller_1.SettingsController],
         providers: [settings_service_1.SettingsService],
         exports: [settings_service_1.SettingsService]
@@ -23720,7 +23578,7 @@ var require_inventory_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InventoryService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var inventory_movement_entity_1 = require_inventory_movement_entity();
     var product_entity_1 = require_product_entity();
@@ -23920,8 +23778,8 @@ var require_inventory_service = __commonJS({
     exports2.InventoryService = InventoryService;
     exports2.InventoryService = InventoryService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(inventory_movement_entity_1.InventoryMovement)),
-      __param(1, (0, typeorm_1.InjectRepository)(product_entity_1.Product)),
+      __param(0, (0, typeorm_12.InjectRepository)(inventory_movement_entity_1.InventoryMovement)),
+      __param(1, (0, typeorm_12.InjectRepository)(product_entity_1.Product)),
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
         typeorm_2.Repository,
@@ -24104,7 +23962,7 @@ var require_inventory_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InventoryModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var inventory_movement_entity_1 = require_inventory_movement_entity();
     var product_entity_1 = require_product_entity();
     var inventory_service_1 = require_inventory_service();
@@ -24114,7 +23972,7 @@ var require_inventory_module = __commonJS({
     exports2.InventoryModule = InventoryModule;
     exports2.InventoryModule = InventoryModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([inventory_movement_entity_1.InventoryMovement, product_entity_1.Product])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([inventory_movement_entity_1.InventoryMovement, product_entity_1.Product])],
         controllers: [inventory_controller_1.InventoryController],
         providers: [inventory_service_1.InventoryService],
         exports: [inventory_service_1.InventoryService]
@@ -24144,7 +24002,7 @@ var require_purchases_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.PurchasesService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var purchase_entity_1 = require_purchase_entity();
     var purchase_item_entity_1 = require_purchase_item_entity();
@@ -24248,7 +24106,7 @@ var require_purchases_service = __commonJS({
     exports2.PurchasesService = PurchasesService;
     exports2.PurchasesService = PurchasesService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(purchase_entity_1.Purchase)),
+      __param(0, (0, typeorm_12.InjectRepository)(purchase_entity_1.Purchase)),
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
         typeorm_2.DataSource
@@ -24453,7 +24311,7 @@ var require_purchases_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.PurchasesModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var purchase_entity_1 = require_purchase_entity();
     var purchase_item_entity_1 = require_purchase_item_entity();
     var purchases_service_1 = require_purchases_service();
@@ -24463,7 +24321,7 @@ var require_purchases_module = __commonJS({
     exports2.PurchasesModule = PurchasesModule;
     exports2.PurchasesModule = PurchasesModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([purchase_entity_1.Purchase, purchase_item_entity_1.PurchaseItem])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([purchase_entity_1.Purchase, purchase_item_entity_1.PurchaseItem])],
         controllers: [purchases_controller_1.PurchasesController],
         providers: [purchases_service_1.PurchasesService]
       })
@@ -24492,7 +24350,7 @@ var require_cash_sessions_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CashSessionsService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var cash_session_entity_1 = require_cash_session_entity();
     var sale_entity_1 = require_sale_entity();
@@ -24617,20 +24475,22 @@ var require_cash_sessions_service = __commonJS({
         const totalProfit = sales.reduce((s, v) => s + Number(v.profit), 0);
         const cashTotal = sales.filter((s) => [enums_1.PaymentMethod.CASH, enums_1.PaymentMethod.MIXED].includes(s.paymentMethod)).reduce((s, v) => s + Number(v.total), 0);
         const cardTotal = sales.filter((s) => s.paymentMethod === enums_1.PaymentMethod.CARD).reduce((s, v) => s + Number(v.total), 0);
+        const nequiTotal = sales.filter((s) => s.paymentMethod === enums_1.PaymentMethod.NEQUI).reduce((s, v) => s + Number(v.total), 0);
         return {
           totalSales,
           totalRevenue: Number(totalRevenue.toFixed(2)),
           totalProfit: Number(totalProfit.toFixed(2)),
           cashTotal: Number(cashTotal.toFixed(2)),
-          cardTotal: Number(cardTotal.toFixed(2))
+          cardTotal: Number(cardTotal.toFixed(2)),
+          nequiTotal: Number(nequiTotal.toFixed(2))
         };
       }
     };
     exports2.CashSessionsService = CashSessionsService;
     exports2.CashSessionsService = CashSessionsService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(cash_session_entity_1.CashSession)),
-      __param(1, (0, typeorm_1.InjectRepository)(sale_entity_1.Sale)),
+      __param(0, (0, typeorm_12.InjectRepository)(cash_session_entity_1.CashSession)),
+      __param(1, (0, typeorm_12.InjectRepository)(sale_entity_1.Sale)),
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
         typeorm_2.Repository
@@ -24806,7 +24666,7 @@ var require_cash_sessions_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CashSessionsModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var cash_session_entity_1 = require_cash_session_entity();
     var sale_entity_1 = require_sale_entity();
     var cash_sessions_service_1 = require_cash_sessions_service();
@@ -24816,7 +24676,7 @@ var require_cash_sessions_module = __commonJS({
     exports2.CashSessionsModule = CashSessionsModule;
     exports2.CashSessionsModule = CashSessionsModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([cash_session_entity_1.CashSession, sale_entity_1.Sale])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([cash_session_entity_1.CashSession, sale_entity_1.Sale])],
         controllers: [cash_sessions_controller_1.CashSessionsController],
         providers: [cash_sessions_service_1.CashSessionsService],
         exports: [cash_sessions_service_1.CashSessionsService]
@@ -24903,7 +24763,7 @@ var require_sales_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SalesService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var sale_entity_1 = require_sale_entity();
     var sale_item_entity_1 = require_sale_item_entity();
@@ -25040,7 +24900,8 @@ var require_sales_service = __commonJS({
         const { subtotal, taxAmount, total } = (0, tax_util_1.calculateTaxFromIncludedPrice)(totalWithTax, taxRate);
         let amountPaid = dto.amountPaid ?? total;
         let change = 0;
-        if (dto.paymentMethod === enums_1.PaymentMethod.CASH || dto.paymentMethod === enums_1.PaymentMethod.MIXED) {
+        const expectsCash = dto.paymentMethod === enums_1.PaymentMethod.CASH || dto.paymentMethod === enums_1.PaymentMethod.MIXED;
+        if (expectsCash) {
           if (amountPaid < total) {
             throw new common_1.BadRequestException("El monto pagado es insuficiente");
           }
@@ -25118,7 +24979,7 @@ var require_sales_service = __commonJS({
     exports2.SalesService = SalesService;
     exports2.SalesService = SalesService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(sale_entity_1.Sale)),
+      __param(0, (0, typeorm_12.InjectRepository)(sale_entity_1.Sale)),
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
         settings_service_1.SettingsService,
@@ -25339,7 +25200,7 @@ var require_sales_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SalesModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var sale_entity_1 = require_sale_entity();
     var sale_item_entity_1 = require_sale_item_entity();
     var sales_service_1 = require_sales_service();
@@ -25350,7 +25211,7 @@ var require_sales_module = __commonJS({
     exports2.SalesModule = SalesModule;
     exports2.SalesModule = SalesModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([sale_entity_1.Sale, sale_item_entity_1.SaleItem]), settings_module_1.SettingsModule],
+        imports: [typeorm_12.TypeOrmModule.forFeature([sale_entity_1.Sale, sale_item_entity_1.SaleItem]), settings_module_1.SettingsModule],
         controllers: [sales_controller_1.SalesController],
         providers: [sales_service_1.SalesService],
         exports: [sales_service_1.SalesService]
@@ -25374,7 +25235,7 @@ var require_table_order_item_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TableOrderItem = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var product_entity_1 = require_product_entity();
     var table_order_entity_1 = require_table_order_entity();
     var TableOrderItem = class TableOrderItem {
@@ -25395,65 +25256,65 @@ var require_table_order_item_entity = __commonJS({
     };
     exports2.TableOrderItem = TableOrderItem;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], TableOrderItem.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "order_id" }),
+      (0, typeorm_12.Column)({ name: "order_id" }),
       __metadata("design:type", Number)
     ], TableOrderItem.prototype, "orderId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => table_order_entity_1.TableOrder, (order) => order.items, { onDelete: "CASCADE" }),
-      (0, typeorm_1.JoinColumn)({ name: "order_id" }),
+      (0, typeorm_12.ManyToOne)(() => table_order_entity_1.TableOrder, (order) => order.items, { onDelete: "CASCADE" }),
+      (0, typeorm_12.JoinColumn)({ name: "order_id" }),
       __metadata("design:type", table_order_entity_1.TableOrder)
     ], TableOrderItem.prototype, "order", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "product_id" }),
+      (0, typeorm_12.Column)({ name: "product_id" }),
       __metadata("design:type", Number)
     ], TableOrderItem.prototype, "productId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => product_entity_1.Product),
-      (0, typeorm_1.JoinColumn)({ name: "product_id" }),
+      (0, typeorm_12.ManyToOne)(() => product_entity_1.Product),
+      (0, typeorm_12.JoinColumn)({ name: "product_id" }),
       __metadata("design:type", product_entity_1.Product)
     ], TableOrderItem.prototype, "product", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "product_name", length: 250 }),
+      (0, typeorm_12.Column)({ name: "product_name", length: 250 }),
       __metadata("design:type", String)
     ], TableOrderItem.prototype, "productName", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "int" }),
+      (0, typeorm_12.Column)({ type: "int" }),
       __metadata("design:type", Number)
     ], TableOrderItem.prototype, "quantity", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "unit_price", type: "decimal", precision: 12, scale: 2 }),
+      (0, typeorm_12.Column)({ name: "unit_price", type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
     ], TableOrderItem.prototype, "unitPrice", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "selected_option_ids", type: "json", nullable: true }),
+      (0, typeorm_12.Column)({ name: "selected_option_ids", type: "json", nullable: true }),
       __metadata("design:type", Object)
     ], TableOrderItem.prototype, "selectedOptionIds", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "option_label", type: "varchar", length: 250, nullable: true }),
+      (0, typeorm_12.Column)({ name: "option_label", type: "varchar", length: 250, nullable: true }),
       __metadata("design:type", Object)
     ], TableOrderItem.prototype, "optionLabel", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "portion_scoop_count", type: "int", nullable: true }),
+      (0, typeorm_12.Column)({ name: "portion_scoop_count", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], TableOrderItem.prototype, "portionScoopCount", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", Object)
     ], TableOrderItem.prototype, "notes", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], TableOrderItem.prototype, "createdAt", void 0);
     __decorate([
-      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      (0, typeorm_12.UpdateDateColumn)({ name: "updated_at" }),
       __metadata("design:type", Date)
     ], TableOrderItem.prototype, "updatedAt", void 0);
     exports2.TableOrderItem = TableOrderItem = __decorate([
-      (0, typeorm_1.Entity)("table_order_items")
+      (0, typeorm_12.Entity)("table_order_items")
     ], TableOrderItem);
   }
 });
@@ -25473,7 +25334,7 @@ var require_table_order_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TableOrder = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var enums_1 = require_enums();
     var customer_entity_1 = require_customer_entity();
     var sale_entity_1 = require_sale_entity();
@@ -25503,85 +25364,85 @@ var require_table_order_entity = __commonJS({
     };
     exports2.TableOrder = TableOrder;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], TableOrder.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id" }),
+      (0, typeorm_12.Column)({ name: "store_id" }),
       __metadata("design:type", Number)
     ], TableOrder.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], TableOrder.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "table_id" }),
+      (0, typeorm_12.Column)({ name: "table_id" }),
       __metadata("design:type", Number)
     ], TableOrder.prototype, "tableId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => restaurant_table_entity_1.RestaurantTable, (table) => table.orders),
-      (0, typeorm_1.JoinColumn)({ name: "table_id" }),
+      (0, typeorm_12.ManyToOne)(() => restaurant_table_entity_1.RestaurantTable, (table) => table.orders),
+      (0, typeorm_12.JoinColumn)({ name: "table_id" }),
       __metadata("design:type", restaurant_table_entity_1.RestaurantTable)
     ], TableOrder.prototype, "table", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "enum", enum: enums_1.TableOrderStatus, default: enums_1.TableOrderStatus.OPEN }),
+      (0, typeorm_12.Column)({ type: "enum", enum: enums_1.TableOrderStatus, default: enums_1.TableOrderStatus.OPEN }),
       __metadata("design:type", String)
     ], TableOrder.prototype, "status", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "customer_id", type: "int", nullable: true }),
+      (0, typeorm_12.Column)({ name: "customer_id", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], TableOrder.prototype, "customerId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => customer_entity_1.Customer, { nullable: true }),
-      (0, typeorm_1.JoinColumn)({ name: "customer_id" }),
+      (0, typeorm_12.ManyToOne)(() => customer_entity_1.Customer, { nullable: true }),
+      (0, typeorm_12.JoinColumn)({ name: "customer_id" }),
       __metadata("design:type", Object)
     ], TableOrder.prototype, "customer", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ type: "text", nullable: true }),
+      (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", Object)
     ], TableOrder.prototype, "notes", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "opened_by_user_id" }),
+      (0, typeorm_12.Column)({ name: "opened_by_user_id" }),
       __metadata("design:type", Number)
     ], TableOrder.prototype, "openedByUserId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => user_entity_1.User),
-      (0, typeorm_1.JoinColumn)({ name: "opened_by_user_id" }),
+      (0, typeorm_12.ManyToOne)(() => user_entity_1.User),
+      (0, typeorm_12.JoinColumn)({ name: "opened_by_user_id" }),
       __metadata("design:type", user_entity_1.User)
     ], TableOrder.prototype, "openedByUser", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "closed_by_user_id", type: "int", nullable: true }),
+      (0, typeorm_12.Column)({ name: "closed_by_user_id", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], TableOrder.prototype, "closedByUserId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => user_entity_1.User, { nullable: true }),
-      (0, typeorm_1.JoinColumn)({ name: "closed_by_user_id" }),
+      (0, typeorm_12.ManyToOne)(() => user_entity_1.User, { nullable: true }),
+      (0, typeorm_12.JoinColumn)({ name: "closed_by_user_id" }),
       __metadata("design:type", Object)
     ], TableOrder.prototype, "closedByUser", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "sale_id", type: "int", nullable: true }),
+      (0, typeorm_12.Column)({ name: "sale_id", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], TableOrder.prototype, "saleId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => sale_entity_1.Sale, { nullable: true }),
-      (0, typeorm_1.JoinColumn)({ name: "sale_id" }),
+      (0, typeorm_12.ManyToOne)(() => sale_entity_1.Sale, { nullable: true }),
+      (0, typeorm_12.JoinColumn)({ name: "sale_id" }),
       __metadata("design:type", Object)
     ], TableOrder.prototype, "sale", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => table_order_item_entity_1.TableOrderItem, (item) => item.order, { cascade: true }),
+      (0, typeorm_12.OneToMany)(() => table_order_item_entity_1.TableOrderItem, (item) => item.order, { cascade: true }),
       __metadata("design:type", Array)
     ], TableOrder.prototype, "items", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], TableOrder.prototype, "createdAt", void 0);
     __decorate([
-      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      (0, typeorm_12.UpdateDateColumn)({ name: "updated_at" }),
       __metadata("design:type", Date)
     ], TableOrder.prototype, "updatedAt", void 0);
     exports2.TableOrder = TableOrder = __decorate([
-      (0, typeorm_1.Entity)("table_orders")
+      (0, typeorm_12.Entity)("table_orders")
     ], TableOrder);
   }
 });
@@ -25601,7 +25462,7 @@ var require_restaurant_table_entity = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.RestaurantTable = void 0;
-    var typeorm_1 = require("typeorm");
+    var typeorm_12 = require("typeorm");
     var store_entity_1 = require_store_entity();
     var table_order_entity_1 = require_table_order_entity();
     var RestaurantTable = class RestaurantTable {
@@ -25618,49 +25479,49 @@ var require_restaurant_table_entity = __commonJS({
     };
     exports2.RestaurantTable = RestaurantTable;
     __decorate([
-      (0, typeorm_1.PrimaryGeneratedColumn)(),
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
       __metadata("design:type", Number)
     ], RestaurantTable.prototype, "id", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "store_id" }),
+      (0, typeorm_12.Column)({ name: "store_id" }),
       __metadata("design:type", Number)
     ], RestaurantTable.prototype, "storeId", void 0);
     __decorate([
-      (0, typeorm_1.ManyToOne)(() => store_entity_1.Store),
-      (0, typeorm_1.JoinColumn)({ name: "store_id" }),
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
       __metadata("design:type", store_entity_1.Store)
     ], RestaurantTable.prototype, "store", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ length: 100 }),
+      (0, typeorm_12.Column)({ length: 100 }),
       __metadata("design:type", String)
     ], RestaurantTable.prototype, "name", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ default: 4 }),
+      (0, typeorm_12.Column)({ default: 4 }),
       __metadata("design:type", Number)
     ], RestaurantTable.prototype, "capacity", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ default: true }),
+      (0, typeorm_12.Column)({ default: true }),
       __metadata("design:type", Boolean)
     ], RestaurantTable.prototype, "active", void 0);
     __decorate([
-      (0, typeorm_1.Column)({ name: "sort_order", default: 0 }),
+      (0, typeorm_12.Column)({ name: "sort_order", default: 0 }),
       __metadata("design:type", Number)
     ], RestaurantTable.prototype, "sortOrder", void 0);
     __decorate([
-      (0, typeorm_1.OneToMany)(() => table_order_entity_1.TableOrder, (order) => order.table),
+      (0, typeorm_12.OneToMany)(() => table_order_entity_1.TableOrder, (order) => order.table),
       __metadata("design:type", Array)
     ], RestaurantTable.prototype, "orders", void 0);
     __decorate([
-      (0, typeorm_1.CreateDateColumn)({ name: "created_at" }),
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
       __metadata("design:type", Date)
     ], RestaurantTable.prototype, "createdAt", void 0);
     __decorate([
-      (0, typeorm_1.UpdateDateColumn)({ name: "updated_at" }),
+      (0, typeorm_12.UpdateDateColumn)({ name: "updated_at" }),
       __metadata("design:type", Date)
     ], RestaurantTable.prototype, "updatedAt", void 0);
     exports2.RestaurantTable = RestaurantTable = __decorate([
-      (0, typeorm_1.Entity)("restaurant_tables"),
-      (0, typeorm_1.Unique)(["storeId", "name"])
+      (0, typeorm_12.Entity)("restaurant_tables"),
+      (0, typeorm_12.Unique)(["storeId", "name"])
     ], RestaurantTable);
   }
 });
@@ -25865,7 +25726,7 @@ var require_tables_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TablesService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var enums_1 = require_enums();
     var store_context_util_1 = require_store_context_util();
@@ -26286,9 +26147,9 @@ var require_tables_service = __commonJS({
     exports2.TablesService = TablesService;
     exports2.TablesService = TablesService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(restaurant_table_entity_1.RestaurantTable)),
-      __param(1, (0, typeorm_1.InjectRepository)(table_order_entity_1.TableOrder)),
-      __param(2, (0, typeorm_1.InjectRepository)(table_order_item_entity_1.TableOrderItem)),
+      __param(0, (0, typeorm_12.InjectRepository)(restaurant_table_entity_1.RestaurantTable)),
+      __param(1, (0, typeorm_12.InjectRepository)(table_order_entity_1.TableOrder)),
+      __param(2, (0, typeorm_12.InjectRepository)(table_order_item_entity_1.TableOrderItem)),
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
         typeorm_2.Repository,
@@ -26491,7 +26352,7 @@ var require_tables_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TablesModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var sales_module_1 = require_sales_module();
     var restaurant_table_entity_1 = require_restaurant_table_entity();
     var table_order_entity_1 = require_table_order_entity();
@@ -26504,7 +26365,7 @@ var require_tables_module = __commonJS({
     exports2.TablesModule = TablesModule = __decorate([
       (0, common_1.Module)({
         imports: [
-          typeorm_1.TypeOrmModule.forFeature([restaurant_table_entity_1.RestaurantTable, table_order_entity_1.TableOrder, table_order_item_entity_1.TableOrderItem]),
+          typeorm_12.TypeOrmModule.forFeature([restaurant_table_entity_1.RestaurantTable, table_order_entity_1.TableOrder, table_order_item_entity_1.TableOrderItem]),
           sales_module_1.SalesModule
         ],
         controllers: [tables_controller_1.TablesController],
@@ -26535,7 +26396,7 @@ var require_reports_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ReportsService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var sale_entity_1 = require_sale_entity();
     var sale_item_entity_1 = require_sale_item_entity();
@@ -26704,9 +26565,9 @@ var require_reports_service = __commonJS({
     exports2.ReportsService = ReportsService;
     exports2.ReportsService = ReportsService = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(sale_entity_1.Sale)),
-      __param(1, (0, typeorm_1.InjectRepository)(sale_item_entity_1.SaleItem)),
-      __param(2, (0, typeorm_1.InjectRepository)(product_entity_1.Product)),
+      __param(0, (0, typeorm_12.InjectRepository)(sale_entity_1.Sale)),
+      __param(1, (0, typeorm_12.InjectRepository)(sale_item_entity_1.SaleItem)),
+      __param(2, (0, typeorm_12.InjectRepository)(product_entity_1.Product)),
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
         typeorm_2.Repository,
@@ -26850,7 +26711,7 @@ var require_reports_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ReportsModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var sale_entity_1 = require_sale_entity();
     var sale_item_entity_1 = require_sale_item_entity();
     var product_entity_1 = require_product_entity();
@@ -26861,7 +26722,7 @@ var require_reports_module = __commonJS({
     exports2.ReportsModule = ReportsModule;
     exports2.ReportsModule = ReportsModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([sale_entity_1.Sale, sale_item_entity_1.SaleItem, product_entity_1.Product])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([sale_entity_1.Sale, sale_item_entity_1.SaleItem, product_entity_1.Product])],
         controllers: [reports_controller_1.ReportsController],
         providers: [reports_service_1.ReportsService]
       })
@@ -27571,7 +27432,7 @@ var require_seed_service = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SeedService = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var typeorm_2 = require("typeorm");
     var bcrypt = __importStar(require("bcryptjs"));
     var user_entity_1 = require_user_entity();
@@ -28025,15 +27886,15 @@ var require_seed_service = __commonJS({
     exports2.SeedService = SeedService;
     exports2.SeedService = SeedService = SeedService_1 = __decorate([
       (0, common_1.Injectable)(),
-      __param(0, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
-      __param(1, (0, typeorm_1.InjectRepository)(setting_entity_1.Setting)),
-      __param(2, (0, typeorm_1.InjectRepository)(store_entity_1.Store)),
-      __param(3, (0, typeorm_1.InjectRepository)(category_entity_1.Category)),
-      __param(4, (0, typeorm_1.InjectRepository)(product_entity_1.Product)),
-      __param(5, (0, typeorm_1.InjectRepository)(customer_entity_1.Customer)),
-      __param(6, (0, typeorm_1.InjectRepository)(supplier_entity_1.Supplier)),
-      __param(7, (0, typeorm_1.InjectRepository)(purchase_entity_1.Purchase)),
-      __param(8, (0, typeorm_1.InjectRepository)(purchase_item_entity_1.PurchaseItem)),
+      __param(0, (0, typeorm_12.InjectRepository)(user_entity_1.User)),
+      __param(1, (0, typeorm_12.InjectRepository)(setting_entity_1.Setting)),
+      __param(2, (0, typeorm_12.InjectRepository)(store_entity_1.Store)),
+      __param(3, (0, typeorm_12.InjectRepository)(category_entity_1.Category)),
+      __param(4, (0, typeorm_12.InjectRepository)(product_entity_1.Product)),
+      __param(5, (0, typeorm_12.InjectRepository)(customer_entity_1.Customer)),
+      __param(6, (0, typeorm_12.InjectRepository)(supplier_entity_1.Supplier)),
+      __param(7, (0, typeorm_12.InjectRepository)(purchase_entity_1.Purchase)),
+      __param(8, (0, typeorm_12.InjectRepository)(purchase_item_entity_1.PurchaseItem)),
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
         typeorm_2.Repository,
@@ -28126,7 +27987,7 @@ var require_seed_module = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SeedModule = void 0;
     var common_1 = require("@nestjs/common");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var store_entity_1 = require_store_entity();
     var user_entity_1 = require_user_entity();
     var setting_entity_1 = require_setting_entity();
@@ -28144,7 +28005,7 @@ var require_seed_module = __commonJS({
     exports2.SeedModule = SeedModule = __decorate([
       (0, common_1.Module)({
         imports: [
-          typeorm_1.TypeOrmModule.forFeature([store_entity_1.Store, user_entity_1.User, setting_entity_1.Setting, category_entity_1.Category, product_entity_1.Product, customer_entity_1.Customer, supplier_entity_1.Supplier, purchase_entity_1.Purchase, purchase_item_entity_1.PurchaseItem])
+          typeorm_12.TypeOrmModule.forFeature([store_entity_1.Store, user_entity_1.User, setting_entity_1.Setting, category_entity_1.Category, product_entity_1.Product, customer_entity_1.Customer, supplier_entity_1.Supplier, purchase_entity_1.Purchase, purchase_item_entity_1.PurchaseItem])
         ],
         controllers: [seed_controller_1.SeedController],
         providers: [seed_service_1.SeedService],
@@ -28195,7 +28056,7 @@ var require_app_module = __commonJS({
     exports2.AppModule = void 0;
     var common_1 = require("@nestjs/common");
     var config_1 = require("@nestjs/config");
-    var typeorm_1 = require("@nestjs/typeorm");
+    var typeorm_12 = require("@nestjs/typeorm");
     var core_1 = require("@nestjs/core");
     var auth_module_1 = require_auth_module();
     var jwt_auth_guard_1 = require_jwt_auth_guard();
@@ -28245,7 +28106,7 @@ var require_app_module = __commonJS({
             ignoreEnvFile: !!process.env.VERCEL
           }),
           storage_module_1.StorageModule,
-          typeorm_1.TypeOrmModule.forRootAsync({
+          typeorm_12.TypeOrmModule.forRootAsync({
             imports: [config_1.ConfigModule],
             inject: [config_1.ConfigService],
             useFactory: (config) => {
@@ -28281,14 +28142,16 @@ var require_app_module = __commonJS({
                 synchronize: false,
                 timezone: "Z",
                 logging: process.env.NODE_ENV === "production" ? ["error"] : true,
-                retryAttempts: onVercel ? 1 : 3,
-                retryDelay: onVercel ? 500 : 2e3,
+                poolSize: onVercel ? 1 : 8,
+                retryAttempts: onVercel ? 0 : 3,
+                retryDelay: onVercel ? 0 : 2e3,
                 extra: {
                   waitForConnections: true,
-                  connectionLimit: onVercel ? 4 : 8,
-                  maxIdle: onVercel ? 2 : 5,
-                  idleTimeout: onVercel ? 3e4 : 6e4,
-                  enableKeepAlive: true,
+                  connectionLimit: onVercel ? 1 : 8,
+                  maxIdle: onVercel ? 1 : 5,
+                  idleTimeout: onVercel ? 8e3 : 6e4,
+                  queueLimit: 0,
+                  enableKeepAlive: !onVercel,
                   keepAliveInitialDelay: 0,
                   connectTimeout: onVercel ? 8e3 : 1e4
                 }
@@ -28330,6 +28193,7 @@ var require_app_bootstrap = __commonJS({
     var common_1 = require("@nestjs/common");
     var core_1 = require("@nestjs/core");
     var platform_express_1 = require("@nestjs/platform-express");
+    var typeorm_12 = require("typeorm");
     var app_module_1 = require_app_module();
     function isOriginAllowed(origin) {
       if (!origin)
@@ -28376,12 +28240,27 @@ var require_app_bootstrap = __commonJS({
         transformOptions: { enableImplicitConversion: true }
       }));
     }
-    async function createNestApp(expressApp2) {
+    async function createNestApp(expressApp) {
       const logger = process.env.NODE_ENV === "production" ? ["error", "warn"] : ["log", "error", "warn"];
       const nestOptions = { logger, abortOnError: false };
-      const app = expressApp2 ? await core_1.NestFactory.create(app_module_1.AppModule, new platform_express_1.ExpressAdapter(expressApp2), nestOptions) : await core_1.NestFactory.create(app_module_1.AppModule, nestOptions);
+      const app = expressApp ? await core_1.NestFactory.create(app_module_1.AppModule, new platform_express_1.ExpressAdapter(expressApp), nestOptions) : await core_1.NestFactory.create(app_module_1.AppModule, nestOptions);
       applyAppConfig(app);
+      tuneMysqlSessions(app);
       return app;
+    }
+    function tuneMysqlSessions(app) {
+      if (!process.env.VERCEL)
+        return;
+      try {
+        const ds = app.get(typeorm_12.DataSource);
+        const pool = ds.driver.pool;
+        const sql = "SET SESSION wait_timeout = 20, interactive_timeout = 20";
+        pool?.on?.("connection", (connection) => {
+          connection.query(sql);
+        });
+        void ds.query(sql).catch(() => void 0);
+      } catch {
+      }
     }
   }
 });
@@ -28396,13 +28275,15 @@ exports.handler = handler;
 var dotenv_1 = require("dotenv");
 var express_1 = __importDefault(require("express"));
 var timezone_util_1 = require_timezone_util();
+var typeorm_1 = require("typeorm");
 var migration_bootstrap_1 = require_migration_bootstrap();
 var app_bootstrap_1 = require_app_bootstrap();
 (0, dotenv_1.config)();
 (0, timezone_util_1.applyProcessTimezone)();
-var expressApp;
-var bootstrapPromise;
-var bootstrapError;
+var cache = globalThis;
+if (!cache.__vendiproApp)
+  cache.__vendiproApp = {};
+var appState = cache.__vendiproApp;
 function requestUrl(req) {
   const raw = req.url ?? "/";
   const original = req.headers["x-vercel-original-url"];
@@ -28422,35 +28303,59 @@ async function bootstrap() {
     throw new Error("DB_HOST no est\xE1 configurado en Vercel (Environment Variables)");
   }
   console.log(`[vercel] Iniciando NestJS \u2014 DB: ${dbHost}:${process.env.DB_PORT ?? 3306}`);
-  await (0, migration_bootstrap_1.ensureDatabaseMigrations)();
   const app = (0, express_1.default)();
   const nestApp = await (0, app_bootstrap_1.createNestApp)(app);
-  await nestApp.init();
+  try {
+    await nestApp.init();
+    await (0, migration_bootstrap_1.ensureDatabaseMigrations)(nestApp.get(typeorm_1.DataSource));
+  } catch (err) {
+    await nestApp.close().catch(() => void 0);
+    throw err;
+  }
   console.log("[vercel] NestJS listo");
   return app;
 }
 async function getApp() {
-  if (bootstrapError)
-    throw bootstrapError;
-  if (!expressApp) {
-    if (!bootstrapPromise) {
-      bootstrapPromise = bootstrap().then((app) => {
-        expressApp = app;
-        return app;
-      }).catch((err) => {
-        bootstrapError = err;
-        bootstrapPromise = void 0;
-        console.error("[vercel] Bootstrap fall\xF3:", err.message);
-        throw err;
-      });
-    }
-    expressApp = await bootstrapPromise;
+  if (appState.app)
+    return appState.app;
+  if (appState.error)
+    throw appState.error;
+  if (Date.now() < (appState.retryAfter ?? 0)) {
+    throw new Error("MySQL rechaz\xF3 conexiones (max_user_connections). Reintenta en unos segundos.");
   }
-  return expressApp;
+  if (!appState.promise) {
+    appState.promise = bootstrap().then((app) => {
+      appState.app = app;
+      appState.retryAfter = 0;
+      return app;
+    }).catch((err) => {
+      appState.promise = void 0;
+      if ((0, migration_bootstrap_1.isTooManyConnections)(err)) {
+        appState.retryAfter = Date.now() + 2e4;
+      } else {
+        appState.error = err;
+      }
+      console.error("[vercel] Bootstrap fall\xF3:", err.message);
+      throw err;
+    });
+  }
+  return appState.promise;
 }
 async function handler(req, res) {
   const url = requestUrl(req);
   const pathOnly = url.split("?")[0];
+  if (req.method === "OPTIONS") {
+    const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
+    if (origin)
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Store-Id, Accept, Origin, X-Requested-With");
+    res.setHeader("Access-Control-Max-Age", "86400");
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
   if (pathOnly === "/api/ping" || pathOnly === "/ping") {
     sendJson(res, 200, { pong: true, ts: Date.now() });
     return;
