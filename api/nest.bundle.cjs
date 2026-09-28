@@ -28154,8 +28154,8 @@ var require_app_module = __commonJS({
                 extra: {
                   waitForConnections: true,
                   connectionLimit: onVercel ? 1 : 8,
-                  maxIdle: onVercel ? 1 : 5,
-                  idleTimeout: onVercel ? 8e3 : 6e4,
+                  maxIdle: onVercel ? 0 : 5,
+                  idleTimeout: onVercel ? 5e3 : 6e4,
                   queueLimit: 0,
                   enableKeepAlive: !onVercel,
                   keepAliveInitialDelay: 0,
@@ -28251,20 +28251,41 @@ var require_app_bootstrap = __commonJS({
       const nestOptions = { logger, abortOnError: false };
       const app = expressApp ? await core_1.NestFactory.create(app_module_1.AppModule, new platform_express_1.ExpressAdapter(expressApp), nestOptions) : await core_1.NestFactory.create(app_module_1.AppModule, nestOptions);
       applyAppConfig(app);
-      tuneMysqlSessions(app);
+      discardClosedMysqlConnections(app);
       return app;
     }
-    function tuneMysqlSessions(app) {
+    function isClosedConnection(connection) {
+      return Boolean(connection._closing || connection.stream?.destroyed || connection.stream?.readyState === "closed");
+    }
+    function discardClosedMysqlConnections(app) {
       if (!process.env.VERCEL)
         return;
       try {
-        const ds = app.get(typeorm_12.DataSource);
-        const pool = ds.driver.pool;
-        const sql = "SET SESSION wait_timeout = 20, interactive_timeout = 20";
-        pool?.on?.("connection", (connection) => {
-          connection.query(sql);
-        });
-        void ds.query(sql).catch(() => void 0);
+        const pool = app.get(typeorm_12.DataSource).driver.pool;
+        if (!pool)
+          return;
+        const original = pool.getConnection.bind(pool);
+        pool.getConnection = (cb) => {
+          const attempt = (left) => {
+            original((err, connection) => {
+              if (err || !connection) {
+                cb(err ?? new Error("No se pudo obtener conexi\xF3n MySQL"));
+                return;
+              }
+              if (!isClosedConnection(connection)) {
+                cb(null, connection);
+                return;
+              }
+              connection.destroy();
+              if (left <= 1) {
+                cb(new Error("La conexi\xF3n MySQL estaba cerrada"));
+                return;
+              }
+              attempt(left - 1);
+            });
+          };
+          attempt(3);
+        };
       } catch {
       }
     }

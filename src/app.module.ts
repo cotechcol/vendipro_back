@@ -76,8 +76,10 @@ import { TableOrderItem } from './tables/entities/table-order-item.entity';
         extra: {
           waitForConnections: true,
           connectionLimit: onVercel ? 1 : 8,
-          maxIdle: onVercel ? 1 : 5,
-          idleTimeout: onVercel ? 8_000 : 60_000,
+          // maxIdle menor que el límite activa el barrido. En Vercel no se conserva
+          // la conexión idle: Hostinger la cierra a los 20s y el pool la reutilizaba cerrada.
+          maxIdle: onVercel ? 0 : 5,
+          idleTimeout: onVercel ? 5_000 : 60_000,
           queueLimit: 0,
           enableKeepAlive: !onVercel,
           keepAliveInitialDelay: 0,

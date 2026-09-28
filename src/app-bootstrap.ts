@@ -71,22 +71,63 @@ export async function createNestApp(expressApp?: Express): Promise<INestApplicat
     : await NestFactory.create(AppModule, nestOptions);
 
   applyAppConfig(app);
-  tuneMysqlSessions(app);
+  discardClosedMysqlConnections(app);
   return app;
 }
 
-/** Cierra en MySQL las conexiones de instancias Vercel congeladas (el timer de idle no corre). */
-function tuneMysqlSessions(app: INestApplication): void {
+type PoolCallback = (err: Error | null, connection?: PooledConnection) => void;
+
+type PooledConnection = {
+  _closing?: boolean;
+  destroy: () => void;
+  stream?: { destroyed?: boolean; readyState?: string };
+};
+
+type MysqlPool = {
+  getConnection: (cb: PoolCallback) => void;
+};
+
+function isClosedConnection(connection: PooledConnection): boolean {
+  return Boolean(
+    connection._closing
+    || connection.stream?.destroyed
+    || connection.stream?.readyState === 'closed',
+  );
+}
+
+/**
+ * Hostinger cierra la sesión a los 20s. Si la función de Vercel estuvo congelada,
+ * el pool sigue entregando esa conexión y la consulta falla con "closed state".
+ */
+function discardClosedMysqlConnections(app: INestApplication): void {
   if (!process.env.VERCEL) return;
   try {
-    const ds = app.get(DataSource);
-    const pool = (ds.driver as { pool?: { on?: (event: string, cb: (connection: { query: (sql: string) => void }) => void) => void } }).pool;
-    const sql = 'SET SESSION wait_timeout = 20, interactive_timeout = 20';
-    pool?.on?.('connection', (connection) => {
-      connection.query(sql);
-    });
-    void ds.query(sql).catch(() => undefined);
+    const pool = (app.get(DataSource).driver as { pool?: MysqlPool }).pool;
+    if (!pool) return;
+
+    const original = pool.getConnection.bind(pool);
+    pool.getConnection = (cb: PoolCallback) => {
+      const attempt = (left: number) => {
+        original((err, connection) => {
+          if (err || !connection) {
+            cb(err ?? new Error('No se pudo obtener conexión MySQL'));
+            return;
+          }
+          if (!isClosedConnection(connection)) {
+            cb(null, connection);
+            return;
+          }
+          connection.destroy();
+          if (left <= 1) {
+            cb(new Error('La conexión MySQL estaba cerrada'));
+            return;
+          }
+          attempt(left - 1);
+        });
+      };
+      attempt(3);
+    };
   } catch {
-    // El pool sigue usable sin el ajuste de sesión.
+    // El pool sigue usable sin este filtro.
   }
 }
