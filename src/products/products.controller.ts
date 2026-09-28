@@ -5,7 +5,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ProductsService } from './products.service';
-import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
+import { CreateProductDto, ImageUrlsDto, UpdateProductDto } from './dto/product.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -61,6 +61,12 @@ export class ProductsController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   findBulk(@StoreCtx() ctx: StoreContext) {
     return this.service.findBulkProducts(ctx);
+  }
+
+  @Post('image-urls')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.CASHIER)
+  imageUrls(@Body() dto: ImageUrlsDto, @StoreCtx() ctx: StoreContext) {
+    return this.service.getImageUrls(dto.ids ?? [], ctx);
   }
 
   @Get(':id/image-url')

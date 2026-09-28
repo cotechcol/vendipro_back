@@ -30,9 +30,14 @@ export function isTooManyConnections(err: unknown): boolean {
     if (
       e.code === 'ER_TOO_MANY_USER_CONNECTIONS'
       || e.code === 'ER_CON_COUNT_ERROR'
+      || e.code === 'ER_USER_LIMIT_REACHED'
       || e.errno === 1203
       || e.errno === 1040
-      || (typeof e.message === 'string' && e.message.includes('max_user_connections'))
+      || e.errno === 1226
+      || (typeof e.message === 'string' && (
+        e.message.includes('max_user_connections')
+        || e.message.includes('max_connections_per_hour')
+      ))
     ) {
       return true;
     }

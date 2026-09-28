@@ -791,7 +791,7 @@ var require_migration_bootstrap = __commonJS({
       while (current && typeof current === "object" && !seen.has(current)) {
         seen.add(current);
         const e = current;
-        if (e.code === "ER_TOO_MANY_USER_CONNECTIONS" || e.code === "ER_CON_COUNT_ERROR" || e.errno === 1203 || e.errno === 1040 || typeof e.message === "string" && e.message.includes("max_user_connections")) {
+        if (e.code === "ER_TOO_MANY_USER_CONNECTIONS" || e.code === "ER_CON_COUNT_ERROR" || e.code === "ER_USER_LIMIT_REACHED" || e.errno === 1203 || e.errno === 1040 || e.errno === 1226 || typeof e.message === "string" && (e.message.includes("max_user_connections") || e.message.includes("max_connections_per_hour"))) {
           return true;
         }
         current = e.driverError ?? e.cause;
@@ -5381,6 +5381,27 @@ var require_products_service = __commonJS({
         }
         const imageUrl = await this.storage.getObjectUrl(imageKey);
         return { imageUrl };
+      }
+      async getImageUrls(ids, ctx) {
+        const storeId = this.scopeStore(ctx);
+        const unique = [...new Set(ids.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 80);
+        if (!unique.length)
+          return { urls: {} };
+        const products = await this.repo.find({
+          where: { id: (0, typeorm_2.In)(unique), storeId },
+          select: { id: true, imageKey: true }
+        });
+        const urls = {};
+        await Promise.all(products.map(async (product) => {
+          if (!product.imageKey || !this.storage.isConfigured())
+            return;
+          try {
+            urls[product.id] = await this.storage.getObjectUrl(product.imageKey);
+          } catch (err) {
+            console.warn(`[products] No se pudo firmar imagen ${product.imageKey}:`, err);
+          }
+        }));
+        return { urls };
       }
       async getImageUrl(id, ctx) {
         const product = await this.repo.findOne({ where: { id } });
@@ -22130,7 +22151,7 @@ var require_product_dto = __commonJS({
       if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.UpdateProductDto = exports2.CreateProductDto = exports2.ProductOptionGroupDto = exports2.ProductOptionDto = exports2.RecipeItemDto = void 0;
+    exports2.ImageUrlsDto = exports2.UpdateProductDto = exports2.CreateProductDto = exports2.ProductOptionGroupDto = exports2.ProductOptionDto = exports2.RecipeItemDto = void 0;
     var class_validator_1 = require("class-validator");
     var class_transformer_1 = require("class-transformer");
     var enums_1 = require_enums();
@@ -22495,6 +22516,17 @@ var require_product_dto = __commonJS({
       (0, class_validator_1.Min)(1e-3),
       __metadata("design:type", Number)
     ], UpdateProductDto.prototype, "recipeBatchSize", void 0);
+    var ImageUrlsDto = class {
+      ids;
+    };
+    exports2.ImageUrlsDto = ImageUrlsDto;
+    __decorate([
+      (0, class_validator_1.IsArray)(),
+      (0, class_validator_1.ArrayMaxSize)(80),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)({ each: true }),
+      __metadata("design:type", Array)
+    ], ImageUrlsDto.prototype, "ids", void 0);
   }
 });
 
@@ -22556,6 +22588,9 @@ var require_products_controller = __commonJS({
       findBulk(ctx) {
         return this.service.findBulkProducts(ctx);
       }
+      imageUrls(dto, ctx) {
+        return this.service.getImageUrls(dto.ids ?? [], ctx);
+      }
       getImageUrl(id, ctx) {
         return this.service.getImageUrl(id, ctx);
       }
@@ -22614,6 +22649,15 @@ var require_products_controller = __commonJS({
       __metadata("design:paramtypes", [Object]),
       __metadata("design:returntype", void 0)
     ], ProductsController.prototype, "findBulk", null);
+    __decorate([
+      (0, common_1.Post)("image-urls"),
+      (0, roles_decorator_1.Roles)(enums_1.UserRole.SUPER_ADMIN, enums_1.UserRole.ADMIN, enums_1.UserRole.CASHIER),
+      __param(0, (0, common_1.Body)()),
+      __param(1, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [product_dto_1.ImageUrlsDto, Object]),
+      __metadata("design:returntype", void 0)
+    ], ProductsController.prototype, "imageUrls", null);
     __decorate([
       (0, common_1.Get)(":id/image-url"),
       (0, roles_decorator_1.Roles)(enums_1.UserRole.SUPER_ADMIN, enums_1.UserRole.ADMIN, enums_1.UserRole.CASHIER),
@@ -28154,8 +28198,8 @@ var require_app_module = __commonJS({
                 extra: {
                   waitForConnections: true,
                   connectionLimit: onVercel ? 1 : 8,
-                  maxIdle: onVercel ? 0 : 5,
-                  idleTimeout: onVercel ? 5e3 : 6e4,
+                  maxIdle: onVercel ? 1 : 5,
+                  idleTimeout: onVercel ? 6e4 : 6e4,
                   queueLimit: 0,
                   enableKeepAlive: !onVercel,
                   keepAliveInitialDelay: 0,

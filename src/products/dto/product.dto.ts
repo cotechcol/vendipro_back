@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsBoolean, IsNumber, IsInt, Min, MinLength,
+  IsString, IsOptional, IsBoolean, IsNumber, IsInt, Min, MinLength, ArrayMaxSize,
   IsEnum, IsArray, ValidateNested, ValidateIf,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
@@ -263,4 +263,12 @@ export class UpdateProductDto {
   @IsNumber()
   @Min(0.001)
   recipeBatchSize?: number;
+}
+
+export class ImageUrlsDto {
+  @IsArray()
+  @ArrayMaxSize(80)
+  @Type(() => Number)
+  @IsInt({ each: true })
+  ids: number[];
 }

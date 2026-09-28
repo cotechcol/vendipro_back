@@ -68,18 +68,16 @@ import { TableOrderItem } from './tables/entities/table-order-item.entity';
         synchronize: false,
         timezone: 'Z',
         logging: process.env.NODE_ENV === 'production' ? ['error'] : true,
-        // Hostinger limita max_user_connections. En Vercel cada instancia es un proceso:
-        // 1 conexión y se suelta al quedar idle (si la función se congela, MySQL la cierra solo).
+        // Hostinger: 75 a la vez y 500 conexiones NUEVAS por hora.
+        // Reutilizar 1 conexión por instancia. Abrir una por consulta agota el cupo horario.
         poolSize: onVercel ? 1 : 8,
         retryAttempts: onVercel ? 0 : 3,
         retryDelay: onVercel ? 0 : 2000,
         extra: {
           waitForConnections: true,
           connectionLimit: onVercel ? 1 : 8,
-          // maxIdle menor que el límite activa el barrido. En Vercel no se conserva
-          // la conexión idle: Hostinger la cierra a los 20s y el pool la reutilizaba cerrada.
-          maxIdle: onVercel ? 0 : 5,
-          idleTimeout: onVercel ? 5_000 : 60_000,
+          maxIdle: onVercel ? 1 : 5,
+          idleTimeout: onVercel ? 60_000 : 60_000,
           queueLimit: 0,
           enableKeepAlive: !onVercel,
           keepAliveInitialDelay: 0,

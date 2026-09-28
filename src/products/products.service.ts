@@ -760,6 +760,28 @@ export class ProductsService {
     return { imageUrl };
   }
 
+  async getImageUrls(ids: number[], ctx: StoreContext) {
+    const storeId = this.scopeStore(ctx);
+    const unique = [...new Set(ids.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 80);
+    if (!unique.length) return { urls: {} as Record<number, string> };
+
+    const products = await this.repo.find({
+      where: { id: In(unique), storeId },
+      select: { id: true, imageKey: true },
+    });
+
+    const urls: Record<number, string> = {};
+    await Promise.all(products.map(async (product) => {
+      if (!product.imageKey || !this.storage.isConfigured()) return;
+      try {
+        urls[product.id] = await this.storage.getObjectUrl(product.imageKey);
+      } catch (err) {
+        console.warn(`[products] No se pudo firmar imagen ${product.imageKey}:`, err);
+      }
+    }));
+    return { urls };
+  }
+
   async getImageUrl(id: number, ctx: StoreContext) {
     const product = await this.repo.findOne({ where: { id } });
     if (!product) throw new NotFoundException('Producto no encontrado');
