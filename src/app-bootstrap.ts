@@ -82,7 +82,7 @@ type PooledConnection = {
   lastActiveTime?: number;
   destroy: () => void;
   ping?: (cb: (err: Error | null) => void) => void;
-  stream?: { destroyed?: boolean; readyState?: string };
+  stream?: { destroyed?: boolean; readyState?: string; setTimeout?: (ms: number) => void };
 };
 
 type MysqlPool = {
@@ -110,6 +110,57 @@ function replaceConnection(connection: PooledConnection, left: number, attempt: 
   attempt(left - 1);
 }
 
+/** Si el ping no responde, la consulta de cobro se quedaba esperando hasta que Vercel cortaba. */
+const PING_TIMEOUT_MS = 1_500;
+
+function useOrReplace(connection: PooledConnection, left: number, attempt: (left: number) => void, cb: PoolCallback) {
+  if (isClosedConnection(connection)) {
+    replaceConnection(connection, left, attempt, cb);
+    return;
+  }
+
+  connection.stream?.setTimeout?.(12_000);
+
+  const idleMs = connection.lastActiveTime == null
+    ? 0
+    : Date.now() - connection.lastActiveTime;
+  if (idleMs < 12_000 || typeof connection.ping !== 'function') {
+    cb(null, connection);
+    return;
+  }
+
+  let settled = false;
+  const timer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    replaceConnection(connection, left, attempt, cb, new Error('MySQL no respondió al ping'));
+  }, PING_TIMEOUT_MS);
+
+  try {
+    connection.ping((pingErr) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (!pingErr) {
+        cb(null, connection);
+        return;
+      }
+      replaceConnection(connection, left, attempt, cb, pingErr);
+    });
+  } catch (pingErr) {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    replaceConnection(
+      connection,
+      left,
+      attempt,
+      cb,
+      pingErr instanceof Error ? pingErr : new Error('Conexión MySQL cerrada'),
+    );
+  }
+}
+
 /**
  * Hostinger cierra la sesión a los 20s. La consulta de caja abierta usa esa
  * conexión muerta y TypeORM la marca como query failed. Si lleva rato idle, se hace ping.
@@ -128,28 +179,7 @@ function discardClosedMysqlConnections(app: INestApplication): void {
             cb(err ?? new Error('No se pudo obtener conexión MySQL'));
             return;
           }
-          if (isClosedConnection(connection)) {
-            replaceConnection(connection, left, attempt, cb);
-            return;
-          }
-
-          const idleMs = Date.now() - (connection.lastActiveTime ?? 0);
-          if (idleMs < 12_000 || typeof connection.ping !== 'function') {
-            cb(null, connection);
-            return;
-          }
-
-          try {
-            connection.ping((pingErr) => {
-              if (!pingErr) {
-                cb(null, connection);
-                return;
-              }
-              replaceConnection(connection, left, attempt, cb, pingErr);
-            });
-          } catch (pingErr) {
-            replaceConnection(connection, left, attempt, cb, pingErr instanceof Error ? pingErr : new Error('Conexión MySQL cerrada'));
-          }
+          useOrReplace(connection, left, attempt, cb);
         });
       };
       attempt(3);

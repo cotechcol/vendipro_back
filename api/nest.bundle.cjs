@@ -28312,6 +28312,45 @@ var require_app_bootstrap = __commonJS({
       }
       attempt(left - 1);
     }
+    var PING_TIMEOUT_MS = 1500;
+    function useOrReplace(connection, left, attempt, cb) {
+      if (isClosedConnection(connection)) {
+        replaceConnection(connection, left, attempt, cb);
+        return;
+      }
+      connection.stream?.setTimeout?.(12e3);
+      const idleMs = connection.lastActiveTime == null ? 0 : Date.now() - connection.lastActiveTime;
+      if (idleMs < 12e3 || typeof connection.ping !== "function") {
+        cb(null, connection);
+        return;
+      }
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled)
+          return;
+        settled = true;
+        replaceConnection(connection, left, attempt, cb, new Error("MySQL no respondi\xF3 al ping"));
+      }, PING_TIMEOUT_MS);
+      try {
+        connection.ping((pingErr) => {
+          if (settled)
+            return;
+          settled = true;
+          clearTimeout(timer);
+          if (!pingErr) {
+            cb(null, connection);
+            return;
+          }
+          replaceConnection(connection, left, attempt, cb, pingErr);
+        });
+      } catch (pingErr) {
+        if (settled)
+          return;
+        settled = true;
+        clearTimeout(timer);
+        replaceConnection(connection, left, attempt, cb, pingErr instanceof Error ? pingErr : new Error("Conexi\xF3n MySQL cerrada"));
+      }
+    }
     function discardClosedMysqlConnections(app) {
       if (!process.env.VERCEL)
         return;
@@ -28327,26 +28366,7 @@ var require_app_bootstrap = __commonJS({
                 cb(err ?? new Error("No se pudo obtener conexi\xF3n MySQL"));
                 return;
               }
-              if (isClosedConnection(connection)) {
-                replaceConnection(connection, left, attempt, cb);
-                return;
-              }
-              const idleMs = Date.now() - (connection.lastActiveTime ?? 0);
-              if (idleMs < 12e3 || typeof connection.ping !== "function") {
-                cb(null, connection);
-                return;
-              }
-              try {
-                connection.ping((pingErr) => {
-                  if (!pingErr) {
-                    cb(null, connection);
-                    return;
-                  }
-                  replaceConnection(connection, left, attempt, cb, pingErr);
-                });
-              } catch (pingErr) {
-                replaceConnection(connection, left, attempt, cb, pingErr instanceof Error ? pingErr : new Error("Conexi\xF3n MySQL cerrada"));
-              }
+              useOrReplace(connection, left, attempt, cb);
             });
           };
           attempt(3);
