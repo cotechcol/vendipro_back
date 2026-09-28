@@ -775,6 +775,7 @@ var require_migration_bootstrap = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SCHEMA_VERSION = void 0;
+    exports2.isTransientDbError = isTransientDbError;
     exports2.isTooManyConnections = isTooManyConnections;
     exports2.ensureDatabaseMigrations = ensureDatabaseMigrations;
     var store_migration_1 = require_store_migration();
@@ -785,6 +786,26 @@ var require_migration_bootstrap = __commonJS({
     var mysql_singleton_1 = require_mysql_singleton();
     exports2.SCHEMA_VERSION = 8;
     var migrationPromise = null;
+    function errorText(err) {
+      const seen = /* @__PURE__ */ new Set();
+      const parts = [];
+      let current = err;
+      while (current && typeof current === "object" && !seen.has(current)) {
+        seen.add(current);
+        const e = current;
+        if (e.code)
+          parts.push(e.code);
+        if (typeof e.message === "string")
+          parts.push(e.message);
+        current = e.driverError ?? e.cause;
+      }
+      return parts.join(" ");
+    }
+    function isTransientDbError(err) {
+      if (isTooManyConnections(err))
+        return true;
+      return /closed state|PROTOCOL_CONNECTION_LOST|ECONNRESET|EPIPE|ETIMEDOUT|ECONNREFUSED|server closed the connection|Can't write in closed state/i.test(errorText(err));
+    }
     function isTooManyConnections(err) {
       const seen = /* @__PURE__ */ new Set();
       let current = err;
@@ -28237,6 +28258,12 @@ var require_app_module = __commonJS({
 var require_app_bootstrap = __commonJS({
   "dist/app-bootstrap.js"(exports2) {
     "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.applyAppConfig = applyAppConfig;
     exports2.createNestApp = createNestApp;
@@ -28245,6 +28272,7 @@ var require_app_bootstrap = __commonJS({
     var platform_express_1 = require("@nestjs/platform-express");
     var typeorm_12 = require("typeorm");
     var app_module_1 = require_app_module();
+    var migration_bootstrap_12 = require_migration_bootstrap();
     function isOriginAllowed(origin) {
       if (!origin)
         return true;
@@ -28289,7 +28317,26 @@ var require_app_bootstrap = __commonJS({
         transform: true,
         transformOptions: { enableImplicitConversion: true }
       }));
+      app.useGlobalFilters(new MysqlQueryExceptionFilter());
     }
+    var MysqlQueryExceptionFilter = class MysqlQueryExceptionFilter {
+      catch(exception, host) {
+        const res = host.switchToHttp().getResponse();
+        if (res.headersSent)
+          return;
+        const lost = (0, migration_bootstrap_12.isTransientDbError)(exception);
+        if (!lost)
+          console.error("[mysql]", exception.message);
+        const status = lost ? common_1.HttpStatus.SERVICE_UNAVAILABLE : common_1.HttpStatus.INTERNAL_SERVER_ERROR;
+        res.status(status).json({
+          statusCode: status,
+          message: lost ? "Se cort\xF3 la conexi\xF3n con la base de datos. Vuelve a intentar." : "No se pudo completar la operaci\xF3n"
+        });
+      }
+    };
+    MysqlQueryExceptionFilter = __decorate([
+      (0, common_1.Catch)(typeorm_12.QueryFailedError)
+    ], MysqlQueryExceptionFilter);
     async function createNestApp(expressApp) {
       const logger = process.env.NODE_ENV === "production" ? ["error", "warn"] : ["log", "error", "warn"];
       const nestOptions = { logger, abortOnError: false };
@@ -28299,7 +28346,8 @@ var require_app_bootstrap = __commonJS({
       return app;
     }
     function isClosedConnection(connection) {
-      return Boolean(connection._closing || connection.stream?.destroyed || connection.stream?.readyState === "closed");
+      const state = connection.state;
+      return Boolean(connection._closing || connection._fatalError || connection._protocolError || state === "disconnected" || state === "error" || connection.stream?.destroyed || connection.stream?.readyState === "closed" || connection.addCommand?.name === "_addCommandClosedState");
     }
     function replaceConnection(connection, left, attempt, cb, err) {
       try {
@@ -28312,15 +28360,15 @@ var require_app_bootstrap = __commonJS({
       }
       attempt(left - 1);
     }
-    var PING_TIMEOUT_MS = 1500;
+    var PING_TIMEOUT_MS = 2500;
+    var IDLE_BEFORE_PING_MS = 8e3;
     function useOrReplace(connection, left, attempt, cb) {
       if (isClosedConnection(connection)) {
         replaceConnection(connection, left, attempt, cb);
         return;
       }
-      connection.stream?.setTimeout?.(12e3);
-      const idleMs = connection.lastActiveTime == null ? 0 : Date.now() - connection.lastActiveTime;
-      if (idleMs < 12e3 || typeof connection.ping !== "function") {
+      const idleMs = connection.lastActiveTime == null ? IDLE_BEFORE_PING_MS : Date.now() - connection.lastActiveTime;
+      if (idleMs < IDLE_BEFORE_PING_MS || typeof connection.ping !== "function") {
         cb(null, connection);
         return;
       }
@@ -28444,6 +28492,8 @@ async function getApp() {
       appState.promise = void 0;
       if ((0, migration_bootstrap_1.isTooManyConnections)(err)) {
         appState.retryAfter = Date.now() + 2e4;
+      } else if ((0, migration_bootstrap_1.isTransientDbError)(err)) {
+        appState.retryAfter = 0;
       } else {
         appState.error = err;
       }

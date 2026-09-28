@@ -1,9 +1,17 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  ArgumentsHost,
+  Catch,
+  ExceptionFilter,
+  HttpStatus,
+  INestApplication,
+  ValidationPipe,
+} from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import type { Express } from 'express';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryFailedError } from 'typeorm';
 import { AppModule } from './app.module';
+import { isTransientDbError } from './database/migration-bootstrap';
 
 function isOriginAllowed(origin: string | undefined): boolean {
   if (!origin) return true;
@@ -58,6 +66,29 @@ export function applyAppConfig(app: INestApplication): void {
       transformOptions: { enableImplicitConversion: true },
     }),
   );
+  app.useGlobalFilters(new MysqlQueryExceptionFilter());
+}
+
+type HttpReply = {
+  headersSent?: boolean;
+  status: (code: number) => { json: (body: unknown) => void };
+};
+
+@Catch(QueryFailedError)
+class MysqlQueryExceptionFilter implements ExceptionFilter {
+  catch(exception: QueryFailedError, host: ArgumentsHost): void {
+    const res = host.switchToHttp().getResponse<HttpReply>();
+    if (res.headersSent) return;
+    const lost = isTransientDbError(exception);
+    if (!lost) console.error('[mysql]', exception.message);
+    const status = lost ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.INTERNAL_SERVER_ERROR;
+    res.status(status).json({
+      statusCode: status,
+      message: lost
+        ? 'Se cortó la conexión con la base de datos. Vuelve a intentar.'
+        : 'No se pudo completar la operación',
+    });
+  }
 }
 
 export async function createNestApp(expressApp?: Express): Promise<INestApplication> {
@@ -79,10 +110,14 @@ type PoolCallback = (err: Error | null, connection?: PooledConnection) => void;
 
 type PooledConnection = {
   _closing?: boolean;
+  _fatalError?: Error | null;
+  _protocolError?: Error | null;
+  state?: string;
   lastActiveTime?: number;
   destroy: () => void;
   ping?: (cb: (err: Error | null) => void) => void;
-  stream?: { destroyed?: boolean; readyState?: string; setTimeout?: (ms: number) => void };
+  addCommand?: { name?: string };
+  stream?: { destroyed?: boolean; readyState?: string };
 };
 
 type MysqlPool = {
@@ -90,10 +125,16 @@ type MysqlPool = {
 };
 
 function isClosedConnection(connection: PooledConnection): boolean {
+  const state = connection.state;
   return Boolean(
     connection._closing
+    || connection._fatalError
+    || connection._protocolError
+    || state === 'disconnected'
+    || state === 'error'
     || connection.stream?.destroyed
-    || connection.stream?.readyState === 'closed',
+    || connection.stream?.readyState === 'closed'
+    || connection.addCommand?.name === '_addCommandClosedState',
   );
 }
 
@@ -110,8 +151,9 @@ function replaceConnection(connection: PooledConnection, left: number, attempt: 
   attempt(left - 1);
 }
 
-/** Si el ping no responde, la consulta de cobro se quedaba esperando hasta que Vercel cortaba. */
-const PING_TIMEOUT_MS = 1_500;
+/** Hostinger cierra la sesión a los 20s. El ping tiene que fallar antes de que el cobro se quede esperando. */
+const PING_TIMEOUT_MS = 2_500;
+const IDLE_BEFORE_PING_MS = 8_000;
 
 function useOrReplace(connection: PooledConnection, left: number, attempt: (left: number) => void, cb: PoolCallback) {
   if (isClosedConnection(connection)) {
@@ -119,12 +161,10 @@ function useOrReplace(connection: PooledConnection, left: number, attempt: (left
     return;
   }
 
-  connection.stream?.setTimeout?.(12_000);
-
   const idleMs = connection.lastActiveTime == null
-    ? 0
+    ? IDLE_BEFORE_PING_MS
     : Date.now() - connection.lastActiveTime;
-  if (idleMs < 12_000 || typeof connection.ping !== 'function') {
+  if (idleMs < IDLE_BEFORE_PING_MS || typeof connection.ping !== 'function') {
     cb(null, connection);
     return;
   }

@@ -4,7 +4,7 @@ import express from 'express';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { applyProcessTimezone } from './common/utils/timezone.util';
 import { DataSource } from 'typeorm';
-import { ensureDatabaseMigrations, isTooManyConnections } from './database/migration-bootstrap';
+import { ensureDatabaseMigrations, isTooManyConnections, isTransientDbError } from './database/migration-bootstrap';
 import { createNestApp } from './app-bootstrap';
 
 config();
@@ -75,6 +75,8 @@ export async function getApp(): Promise<Express> {
         appState.promise = undefined;
         if (isTooManyConnections(err)) {
           appState.retryAfter = Date.now() + 20_000;
+        } else if (isTransientDbError(err)) {
+          appState.retryAfter = 0;
         } else {
           appState.error = err;
         }

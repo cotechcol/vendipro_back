@@ -15,6 +15,32 @@ export const SCHEMA_VERSION = 8;
 
 let migrationPromise: Promise<void> | null = null;
 
+function errorText(err: unknown): string {
+  const seen = new Set<unknown>();
+  const parts: string[] = [];
+  let current: unknown = err;
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current);
+    const e = current as {
+      code?: string;
+      message?: string;
+      driverError?: unknown;
+      cause?: unknown;
+    };
+    if (e.code) parts.push(e.code);
+    if (typeof e.message === 'string') parts.push(e.message);
+    current = e.driverError ?? e.cause;
+  }
+  return parts.join(' ');
+}
+
+/** Conexión muerta o corte de red. Se puede reintentar en el mismo proceso. */
+export function isTransientDbError(err: unknown): boolean {
+  if (isTooManyConnections(err)) return true;
+  return /closed state|PROTOCOL_CONNECTION_LOST|ECONNRESET|EPIPE|ETIMEDOUT|ECONNREFUSED|server closed the connection|Can't write in closed state/i
+    .test(errorText(err));
+}
+
 export function isTooManyConnections(err: unknown): boolean {
   const seen = new Set<unknown>();
   let current: unknown = err;
