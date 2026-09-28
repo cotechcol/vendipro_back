@@ -79,7 +79,9 @@ type PoolCallback = (err: Error | null, connection?: PooledConnection) => void;
 
 type PooledConnection = {
   _closing?: boolean;
+  lastActiveTime?: number;
   destroy: () => void;
+  ping?: (cb: (err: Error | null) => void) => void;
   stream?: { destroyed?: boolean; readyState?: string };
 };
 
@@ -95,9 +97,22 @@ function isClosedConnection(connection: PooledConnection): boolean {
   );
 }
 
+function replaceConnection(connection: PooledConnection, left: number, attempt: (left: number) => void, cb: PoolCallback, err?: Error | null) {
+  try {
+    connection.destroy();
+  } catch {
+    // Ya estaba cerrada.
+  }
+  if (left <= 1) {
+    cb(err ?? new Error('La conexión MySQL estaba cerrada'));
+    return;
+  }
+  attempt(left - 1);
+}
+
 /**
- * Hostinger cierra la sesión a los 20s. Si la función de Vercel estuvo congelada,
- * el pool sigue entregando esa conexión y la consulta falla con "closed state".
+ * Hostinger cierra la sesión a los 20s. La consulta de caja abierta usa esa
+ * conexión muerta y TypeORM la marca como query failed. Si lleva rato idle, se hace ping.
  */
 function discardClosedMysqlConnections(app: INestApplication): void {
   if (!process.env.VERCEL) return;
@@ -113,16 +128,28 @@ function discardClosedMysqlConnections(app: INestApplication): void {
             cb(err ?? new Error('No se pudo obtener conexión MySQL'));
             return;
           }
-          if (!isClosedConnection(connection)) {
+          if (isClosedConnection(connection)) {
+            replaceConnection(connection, left, attempt, cb);
+            return;
+          }
+
+          const idleMs = Date.now() - (connection.lastActiveTime ?? 0);
+          if (idleMs < 12_000 || typeof connection.ping !== 'function') {
             cb(null, connection);
             return;
           }
-          connection.destroy();
-          if (left <= 1) {
-            cb(new Error('La conexión MySQL estaba cerrada'));
-            return;
+
+          try {
+            connection.ping((pingErr) => {
+              if (!pingErr) {
+                cb(null, connection);
+                return;
+              }
+              replaceConnection(connection, left, attempt, cb, pingErr);
+            });
+          } catch (pingErr) {
+            replaceConnection(connection, left, attempt, cb, pingErr instanceof Error ? pingErr : new Error('Conexión MySQL cerrada'));
           }
-          attempt(left - 1);
         });
       };
       attempt(3);

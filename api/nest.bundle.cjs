@@ -28301,6 +28301,17 @@ var require_app_bootstrap = __commonJS({
     function isClosedConnection(connection) {
       return Boolean(connection._closing || connection.stream?.destroyed || connection.stream?.readyState === "closed");
     }
+    function replaceConnection(connection, left, attempt, cb, err) {
+      try {
+        connection.destroy();
+      } catch {
+      }
+      if (left <= 1) {
+        cb(err ?? new Error("La conexi\xF3n MySQL estaba cerrada"));
+        return;
+      }
+      attempt(left - 1);
+    }
     function discardClosedMysqlConnections(app) {
       if (!process.env.VERCEL)
         return;
@@ -28316,16 +28327,26 @@ var require_app_bootstrap = __commonJS({
                 cb(err ?? new Error("No se pudo obtener conexi\xF3n MySQL"));
                 return;
               }
-              if (!isClosedConnection(connection)) {
+              if (isClosedConnection(connection)) {
+                replaceConnection(connection, left, attempt, cb);
+                return;
+              }
+              const idleMs = Date.now() - (connection.lastActiveTime ?? 0);
+              if (idleMs < 12e3 || typeof connection.ping !== "function") {
                 cb(null, connection);
                 return;
               }
-              connection.destroy();
-              if (left <= 1) {
-                cb(new Error("La conexi\xF3n MySQL estaba cerrada"));
-                return;
+              try {
+                connection.ping((pingErr) => {
+                  if (!pingErr) {
+                    cb(null, connection);
+                    return;
+                  }
+                  replaceConnection(connection, left, attempt, cb, pingErr);
+                });
+              } catch (pingErr) {
+                replaceConnection(connection, left, attempt, cb, pingErr instanceof Error ? pingErr : new Error("Conexi\xF3n MySQL cerrada"));
               }
-              attempt(left - 1);
             });
           };
           attempt(3);
