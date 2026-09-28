@@ -79,8 +79,8 @@ import { TableOrderItem } from './tables/entities/table-order-item.entity';
           maxIdle: onVercel ? 1 : 5,
           idleTimeout: onVercel ? 60_000 : 60_000,
           queueLimit: 0,
-          enableKeepAlive: !onVercel,
-          keepAliveInitialDelay: 0,
+          enableKeepAlive: true,
+          keepAliveInitialDelay: 10_000,
           connectTimeout: onVercel ? 8_000 : 10_000,
         },
       };

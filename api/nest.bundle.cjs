@@ -28222,8 +28222,8 @@ var require_app_module = __commonJS({
                   maxIdle: onVercel ? 1 : 5,
                   idleTimeout: onVercel ? 6e4 : 6e4,
                   queueLimit: 0,
-                  enableKeepAlive: !onVercel,
-                  keepAliveInitialDelay: 0,
+                  enableKeepAlive: true,
+                  keepAliveInitialDelay: 1e4,
                   connectTimeout: onVercel ? 8e3 : 1e4
                 }
               };
@@ -28361,7 +28361,8 @@ var require_app_bootstrap = __commonJS({
       attempt(left - 1);
     }
     var PING_TIMEOUT_MS = 2500;
-    var IDLE_BEFORE_PING_MS = 8e3;
+    var KEEPALIVE_MS = 8e3;
+    var IDLE_BEFORE_PING_MS = 15e3;
     function useOrReplace(connection, left, attempt, cb) {
       if (isClosedConnection(connection)) {
         replaceConnection(connection, left, attempt, cb);
@@ -28399,14 +28400,76 @@ var require_app_bootstrap = __commonJS({
         replaceConnection(connection, left, attempt, cb, pingErr instanceof Error ? pingErr : new Error("Conexi\xF3n MySQL cerrada"));
       }
     }
-    function discardClosedMysqlConnections(app) {
-      if (!process.env.VERCEL)
+    function releaseOrDestroy(connection, dead) {
+      try {
+        if (dead || isClosedConnection(connection))
+          connection.destroy();
+        else
+          connection.release?.();
+      } catch {
+      }
+    }
+    function startMysqlKeepAlive(original) {
+      const g = globalThis;
+      if (g.__vendiproMysqlKeepalive)
         return;
+      g.__vendiproMysqlKeepalive = true;
+      let pending = false;
+      const timer = setInterval(() => {
+        if (pending)
+          return;
+        pending = true;
+        original((err, raw) => {
+          const connection = raw;
+          if (err || !connection) {
+            pending = false;
+            return;
+          }
+          let finished = false;
+          const finish = (dead) => {
+            if (finished)
+              return;
+            finished = true;
+            pending = false;
+            releaseOrDestroy(connection, dead);
+          };
+          if (typeof connection.ping !== "function") {
+            finish(false);
+            return;
+          }
+          const timeout = setTimeout(() => finish(true), PING_TIMEOUT_MS);
+          try {
+            connection.ping((pingErr) => {
+              clearTimeout(timeout);
+              finish(Boolean(pingErr));
+            });
+          } catch {
+            clearTimeout(timeout);
+            finish(true);
+          }
+        });
+      }, KEEPALIVE_MS);
+      timer.unref?.();
+    }
+    function keepMysqlSession(pool) {
+      pool.on?.("connection", (connection) => {
+        const query = connection.query;
+        if (typeof query !== "function")
+          return;
+        try {
+          query.call(connection, "SET SESSION wait_timeout = 600, interactive_timeout = 600", () => void 0);
+        } catch {
+        }
+      });
+    }
+    function discardClosedMysqlConnections(app) {
       try {
         const pool = app.get(typeorm_12.DataSource).driver.pool;
         if (!pool)
           return;
+        keepMysqlSession(pool);
         const original = pool.getConnection.bind(pool);
+        startMysqlKeepAlive(original);
         pool.getConnection = (cb) => {
           const attempt = (left) => {
             original((err, connection) => {

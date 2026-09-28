@@ -122,6 +122,12 @@ type PooledConnection = {
 
 type MysqlPool = {
   getConnection: (cb: PoolCallback) => void;
+  on?: (event: 'connection', listener: (connection: PooledConnection) => void) => void;
+};
+
+type KeepaliveConnection = PooledConnection & {
+  release?: () => void;
+  query?: (sql: string, cb: (err: Error | null) => void) => void;
 };
 
 function isClosedConnection(connection: PooledConnection): boolean {
@@ -151,9 +157,10 @@ function replaceConnection(connection: PooledConnection, left: number, attempt: 
   attempt(left - 1);
 }
 
-/** Hostinger cierra la sesión a los 20s. El ping tiene que fallar antes de que el cobro se quede esperando. */
 const PING_TIMEOUT_MS = 2_500;
-const IDLE_BEFORE_PING_MS = 8_000;
+/** El backend hace ping cada 8s. En un cobro solo se comprueba si ese ping no pudo correr. */
+const KEEPALIVE_MS = 8_000;
+const IDLE_BEFORE_PING_MS = 15_000;
 
 function useOrReplace(connection: PooledConnection, left: number, attempt: (left: number) => void, cb: PoolCallback) {
   if (isClosedConnection(connection)) {
@@ -201,17 +208,81 @@ function useOrReplace(connection: PooledConnection, left: number, attempt: (left
   }
 }
 
+function releaseOrDestroy(connection: KeepaliveConnection, dead: boolean): void {
+  try {
+    if (dead || isClosedConnection(connection)) connection.destroy();
+    else connection.release?.();
+  } catch {
+    // Ya no estaba en el pool.
+  }
+}
+
+/** Misma conexión: un ping cada 8 segundos para que la sesión no quede inactiva. */
+function startMysqlKeepAlive(original: MysqlPool['getConnection']): void {
+  const g = globalThis as typeof globalThis & { __vendiproMysqlKeepalive?: boolean };
+  if (g.__vendiproMysqlKeepalive) return;
+  g.__vendiproMysqlKeepalive = true;
+
+  let pending = false;
+  const timer = setInterval(() => {
+    if (pending) return;
+    pending = true;
+    original((err, raw) => {
+      const connection = raw as KeepaliveConnection | undefined;
+      if (err || !connection) {
+        pending = false;
+        return;
+      }
+      let finished = false;
+      const finish = (dead: boolean) => {
+        if (finished) return;
+        finished = true;
+        pending = false;
+        releaseOrDestroy(connection, dead);
+      };
+      if (typeof connection.ping !== 'function') {
+        finish(false);
+        return;
+      }
+      const timeout = setTimeout(() => finish(true), PING_TIMEOUT_MS);
+      try {
+        connection.ping((pingErr) => {
+          clearTimeout(timeout);
+          finish(Boolean(pingErr));
+        });
+      } catch {
+        clearTimeout(timeout);
+        finish(true);
+      }
+    });
+  }, KEEPALIVE_MS);
+  timer.unref?.();
+}
+
+function keepMysqlSession(pool: MysqlPool): void {
+  pool.on?.('connection', (connection) => {
+    const query = (connection as KeepaliveConnection).query;
+    if (typeof query !== 'function') return;
+    try {
+      query.call(connection, 'SET SESSION wait_timeout = 600, interactive_timeout = 600', () => undefined);
+    } catch {
+      // Si el servidor no acepta el cambio, el ping periódico sigue renovando la sesión.
+    }
+  });
+}
+
 /**
- * Hostinger cierra la sesión a los 20s. La consulta de caja abierta usa esa
- * conexión muerta y TypeORM la marca como query failed. Si lleva rato idle, se hace ping.
+ * Reutiliza una sola conexión y la mantiene activa con ping.
+ * Si ya no responde, se abre otra antes de la consulta de caja.
  */
 function discardClosedMysqlConnections(app: INestApplication): void {
-  if (!process.env.VERCEL) return;
   try {
     const pool = (app.get(DataSource).driver as { pool?: MysqlPool }).pool;
     if (!pool) return;
 
+    keepMysqlSession(pool);
     const original = pool.getConnection.bind(pool);
+    startMysqlKeepAlive(original);
     pool.getConnection = (cb: PoolCallback) => {
       const attempt = (left: number) => {
         original((err, connection) => {
