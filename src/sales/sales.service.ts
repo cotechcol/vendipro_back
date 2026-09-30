@@ -9,6 +9,7 @@ import { CreateSaleDto, ReverseSaleDto } from './dto/sale.dto';
 import { CashSessionStatus, PaymentMethod, SaleStatus } from '../common/enums';
 import { calculateTaxFromIncludedPrice, generateTicketNumber } from '../common/utils/tax.util';
 import { SettingsService } from '../settings/settings.service';
+import { Setting } from '../settings/entities/setting.entity';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
@@ -92,7 +93,10 @@ export class SalesService {
     userId: number,
     storeId: number,
   ) {
-    const taxRate = await this.settingsService.getTaxRate(storeId);
+    // Misma conexión de la transacción. Si se usa el repositorio aparte,
+    // con pool de 1 conexión (Vercel) el cobro se bloquea hasta fallar.
+    const setting = await manager.findOne(Setting, { where: { storeId } });
+    const taxRate = Number(setting?.taxRate ?? 0.19);
     const cashSession = await manager.findOne(CashSession, {
       where: { storeId, userId, status: CashSessionStatus.OPEN },
     });
@@ -152,7 +156,7 @@ export class SalesService {
         }
       }
       if (labels.length) {
-        productName = `${product.name} (${labels.join(', ')})`;
+        productName = `${product.name} (${labels.join(', ')})`.slice(0, 200);
         selectedOptions = {
           optionIds: item.selectedOptionIds ?? [],
           labels,
