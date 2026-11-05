@@ -1,5 +1,5 @@
 import {
-  IsArray, IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, ValidateNested, ArrayMinSize,
+  IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, ValidateNested, ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaymentMethod } from '../../common/enums';
@@ -25,6 +25,10 @@ export class SaleItemDto {
   @IsInt()
   @Min(1)
   portionScoopCount?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  soldAsUnit?: boolean;
 }
 
 export class CreateSaleDto {

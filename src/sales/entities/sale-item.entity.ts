@@ -47,4 +47,8 @@ export class SaleItem {
 
   @Column({ name: 'portion_scoop_count', type: 'int', nullable: true })
   portionScoopCount: number | null;
+
+  /** true = se vendió por unidad suelta; false = paquete/caja completo */
+  @Column({ name: 'sold_as_unit', type: 'boolean', default: false })
+  soldAsUnit: boolean;
 }

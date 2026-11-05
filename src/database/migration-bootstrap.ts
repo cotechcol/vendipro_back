@@ -11,7 +11,7 @@ import { getMysqlSingleton, releaseMysqlSingleton } from './mysql-singleton';
  * Subir este número cuando se agregue una migración nueva.
  * Evita re-escanear information_schema en cada cold start de Vercel.
  */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 let migrationPromise: Promise<void> | null = null;
 

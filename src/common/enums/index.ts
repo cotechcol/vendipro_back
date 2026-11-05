@@ -41,6 +41,7 @@ export enum ProductType {
   PORTION = 'portion',
   COMPOSITE = 'composite',
   PREPARED = 'prepared',
+  PACKAGED = 'packaged',
 }
 
 export enum StockUnit {

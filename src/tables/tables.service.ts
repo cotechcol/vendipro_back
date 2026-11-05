@@ -179,11 +179,13 @@ export class TablesService {
     const order = await this.getOpenOrder(orderId, storeId);
     const quantity = dto.quantity ?? 1;
 
+    const soldAsUnit = Boolean(dto.soldAsUnit);
     const match = await this.findMatchingItem(
       order.id,
       dto.productId,
       dto.selectedOptionIds,
       dto.portionScoopCount,
+      soldAsUnit,
     );
     if (match) {
       const newQty = Number(match.quantity) + quantity;
@@ -192,6 +194,7 @@ export class TablesService {
         storeId,
         newQty,
         match.selectedOptionIds,
+        match.soldAsUnit,
       );
       match.quantity = newQty;
       const saved = await this.itemRepo.save(match);
@@ -205,7 +208,7 @@ export class TablesService {
     let productName: string;
     let optionLabel: string | null = null;
 
-    if (!needsOptions) {
+    if (!needsOptions && !soldAsUnit) {
       const lean = await this.loadProductLean(dto.productId, storeId);
       if (lean.productType === ProductType.SIMPLE) {
         await this.assertQuantityAvailable(lean.id, storeId, quantity, null);
@@ -220,9 +223,17 @@ export class TablesService {
           quantity,
           storeId,
           dto.selectedOptionIds,
+          true,
+          soldAsUnit,
         );
-        unitPrice = calculateSaleUnitPrice(product, dto.selectedOptionIds, dto.portionScoopCount);
-        productName = product.name;
+        unitPrice = calculateSaleUnitPrice(
+          product,
+          dto.selectedOptionIds,
+          dto.portionScoopCount,
+          soldAsUnit,
+        );
+        optionLabel = product.productType === ProductType.PACKAGED ? 'Caja' : null;
+        productName = optionLabel ? `${product.name} (${optionLabel})` : product.name;
       }
     } else {
       product = await this.loadProduct(dto.productId, storeId);
@@ -232,8 +243,11 @@ export class TablesService {
         quantity,
         storeId,
         dto.selectedOptionIds,
+        true,
+        soldAsUnit,
       );
       optionLabel = dto.optionLabel?.trim()
+        || (product.productType === ProductType.PACKAGED ? (soldAsUnit ? 'Unidad' : 'Caja') : null)
         || this.buildOptionLabel(product, dto.selectedOptionIds, dto.portionScoopCount)
         || null;
       productName = optionLabel ? `${product.name} (${optionLabel})` : product.name;
@@ -241,6 +255,7 @@ export class TablesService {
         product,
         dto.selectedOptionIds,
         dto.portionScoopCount,
+        soldAsUnit,
       );
     }
 
@@ -253,6 +268,7 @@ export class TablesService {
       selectedOptionIds: dto.selectedOptionIds?.length ? dto.selectedOptionIds : null,
       optionLabel,
       portionScoopCount: dto.portionScoopCount ?? null,
+      soldAsUnit,
       notes: dto.notes?.trim() || null,
     }));
 
@@ -290,6 +306,7 @@ export class TablesService {
         storeId,
         dto.quantity,
         item.selectedOptionIds,
+        item.soldAsUnit,
       );
       item.quantity = dto.quantity;
     }
@@ -367,6 +384,7 @@ export class TablesService {
           quantity: item.quantity,
           selectedOptionIds: item.selectedOptionIds ?? undefined,
           portionScoopCount: item.portionScoopCount ?? undefined,
+          soldAsUnit: item.soldAsUnit || undefined,
         })),
         customerId: dto.customerId ?? order.customerId ?? undefined,
         paymentMethod: dto.paymentMethod ?? PaymentMethod.CASH,
@@ -428,11 +446,13 @@ export class TablesService {
     productId: number,
     selectedOptionIds?: number[],
     portionScoopCount?: number,
+    soldAsUnit = false,
   ) {
     const items = await this.itemRepo.find({ where: { orderId, productId } });
     return items.find((item) => (
       this.sameOptionIds(item.selectedOptionIds, selectedOptionIds)
       && (item.portionScoopCount ?? null) === (portionScoopCount ?? null)
+      && Boolean(item.soldAsUnit) === soldAsUnit
     )) ?? null;
   }
 
@@ -442,6 +462,7 @@ export class TablesService {
     storeId: number,
     quantity: number,
     selectedOptionIds?: number[] | null,
+    soldAsUnit = false,
   ) {
     if (quantity <= 0) {
       throw new BadRequestException('Cantidad inválida');
@@ -449,6 +470,7 @@ export class TablesService {
 
     const lean = await this.loadProductLean(productId, storeId);
     const needsFullPlan = lean.productType !== ProductType.SIMPLE
+      || soldAsUnit
       || (selectedOptionIds?.length ?? 0) > 0;
 
     if (!needsFullPlan) {
@@ -465,6 +487,8 @@ export class TablesService {
       quantity,
       storeId,
       selectedOptionIds ?? undefined,
+      true,
+      soldAsUnit,
     );
   }
 
@@ -481,6 +505,9 @@ export class TablesService {
         'costPrice',
         'scoopCount',
         'variableScoops',
+        'unitsPerPack',
+        'unitSalePrice',
+        'looseUnits',
       ],
     });
     if (!product || !product.active) {

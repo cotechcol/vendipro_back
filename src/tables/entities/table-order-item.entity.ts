@@ -47,6 +47,9 @@ export class TableOrderItem {
   @Column({ name: 'portion_scoop_count', type: 'int', nullable: true })
   portionScoopCount: number | null;
 
+  @Column({ name: 'sold_as_unit', type: 'boolean', default: false })
+  soldAsUnit: boolean;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 

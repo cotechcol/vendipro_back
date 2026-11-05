@@ -77,6 +77,18 @@ export class Product {
   @Column({ name: 'scoop_prices', type: 'json', nullable: true })
   scoopPrices: number[] | null;
 
+  /** Cigarrillos (u otras unidades) que trae una caja/paquete */
+  @Column({ name: 'units_per_pack', type: 'int', nullable: true })
+  unitsPerPack: number | null;
+
+  /** Precio al vender una unidad suelta (el salePrice es el de la caja) */
+  @Column({ name: 'unit_sale_price', type: 'decimal', precision: 12, scale: 2, nullable: true })
+  unitSalePrice: number | null;
+
+  /** Unidades sueltas de una caja ya abierta */
+  @Column({ name: 'loose_units', type: 'int', default: 0 })
+  looseUnits: number;
+
   @Column({ name: 'sale_price', type: 'decimal', precision: 12, scale: 2 })
   salePrice: number;
 

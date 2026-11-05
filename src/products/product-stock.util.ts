@@ -10,6 +10,29 @@ export interface StockDeduction {
   productId: number;
   productName: string;
   quantity: number;
+  notes?: string;
+}
+
+export function unitsPerPackOf(product: Product): number {
+  return Math.max(1, Math.floor(num(product.unitsPerPack)));
+}
+
+export function packTotalUnits(product: Product): number {
+  return Math.floor(num(product.stock)) * unitsPerPackOf(product)
+    + Math.floor(num(product.looseUnits));
+}
+
+export function splitPackUnits(totalUnits: number, perPack: number): { stock: number; looseUnits: number } {
+  const per = Math.max(1, Math.floor(perPack));
+  const safe = Math.max(0, Math.floor(totalUnits));
+  return {
+    stock: Math.floor(safe / per),
+    looseUnits: safe % per,
+  };
+}
+
+export function packagedUnitsForSale(saleQty: number, soldAsUnit: boolean, perPack: number): number {
+  return soldAsUnit ? saleQty : saleQty * Math.max(1, Math.floor(perPack));
 }
 
 function num(v: number | string | null | undefined): number {
@@ -139,6 +162,7 @@ export async function planStockDeductions(
   storeId: number,
   selectedOptionIds?: number[],
   validateStock = true,
+  soldAsUnit = false,
 ): Promise<StockDeduction[]> {
   if (saleQty <= 0) {
     throw new BadRequestException('Cantidad inválida');
@@ -195,6 +219,30 @@ export async function planStockDeductions(
         throw new BadRequestException(`Stock insuficiente para ${product.name}`);
       }
       return [{ productId: product.id, productName: product.name, quantity: saleQty }];
+    }
+
+    case ProductType.PACKAGED: {
+      const per = unitsPerPackOf(product);
+      if (per < 2) {
+        throw new BadRequestException(`${product.name} no tiene unidades por caja configuradas`);
+      }
+      const needed = packagedUnitsForSale(saleQty, soldAsUnit, per);
+      const available = packTotalUnits(product);
+      if (validateStock && available < needed) {
+        throw new BadRequestException(
+          soldAsUnit
+            ? `Stock insuficiente para ${product.name} (quedan ${available} unidades)`
+            : `Stock insuficiente para ${product.name} (quedan ${Math.floor(available / per)} cajas)`,
+        );
+      }
+      return [{
+        productId: product.id,
+        productName: product.name,
+        quantity: needed,
+        notes: soldAsUnit
+          ? `Venta por unidad: ${saleQty}`
+          : `Venta de ${saleQty} caja${saleQty === 1 ? '' : 's'}`,
+      }];
     }
 
     case ProductType.BULK:
@@ -316,9 +364,22 @@ export async function applyStockDeductions(
     const product = await manager.findOne(Product, { where: { id: d.productId, storeId } });
     if (!product) continue;
 
-    const stockBefore = num(product.stock);
-    const stockAfter = Number((stockBefore - d.quantity).toFixed(3));
-    product.stock = stockAfter;
+    let stockBefore = num(product.stock);
+    let stockAfter: number;
+    let movementQty = d.quantity;
+
+    if (product.productType === ProductType.PACKAGED) {
+      const per = unitsPerPackOf(product);
+      const afterUnits = packTotalUnits(product) - d.quantity;
+      const split = splitPackUnits(afterUnits, per);
+      stockAfter = split.stock;
+      movementQty = Number((stockBefore - stockAfter).toFixed(3));
+      product.stock = stockAfter;
+      product.looseUnits = split.looseUnits;
+    } else {
+      stockAfter = Number((stockBefore - d.quantity).toFixed(3));
+      product.stock = stockAfter;
+    }
     await manager.save(product);
 
     await manager.save(
@@ -326,10 +387,11 @@ export async function applyStockDeductions(
         storeId,
         productId: product.id,
         type: InventoryMovementType.SALE,
-        quantity: d.quantity,
+        quantity: movementQty,
         stockBefore,
         stockAfter,
         reference,
+        notes: d.notes,
         userId,
       }),
     );
@@ -349,9 +411,22 @@ export async function applyStockRestorations(
     const product = await manager.findOne(Product, { where: { id: d.productId, storeId } });
     if (!product) continue;
 
-    const stockBefore = num(product.stock);
-    const stockAfter = Number((stockBefore + d.quantity).toFixed(3));
-    product.stock = stockAfter;
+    let stockBefore = num(product.stock);
+    let stockAfter: number;
+    let movementQty = d.quantity;
+
+    if (product.productType === ProductType.PACKAGED) {
+      const per = unitsPerPackOf(product);
+      const afterUnits = packTotalUnits(product) + d.quantity;
+      const split = splitPackUnits(afterUnits, per);
+      stockAfter = split.stock;
+      movementQty = Number((stockAfter - stockBefore).toFixed(3));
+      product.stock = stockAfter;
+      product.looseUnits = split.looseUnits;
+    } else {
+      stockAfter = Number((stockBefore + d.quantity).toFixed(3));
+      product.stock = stockAfter;
+    }
     await manager.save(product);
 
     await manager.save(
@@ -359,11 +434,11 @@ export async function applyStockRestorations(
         storeId,
         productId: product.id,
         type: InventoryMovementType.SALE_REVERSAL,
-        quantity: d.quantity,
+        quantity: movementQty,
         stockBefore,
         stockAfter,
         reference,
-        notes: notes || undefined,
+        notes: notes || d.notes || undefined,
         userId,
       }),
     );
@@ -375,6 +450,9 @@ export function getSellableUnitsSync(product: Product): number {
   switch (product.productType) {
     case ProductType.SIMPLE:
       return Math.floor(num(product.stock));
+
+    case ProductType.PACKAGED:
+      return packTotalUnits(product);
 
     case ProductType.BULK:
     case ProductType.PREPARED:
@@ -462,6 +540,9 @@ export async function getSellableUnits(
   switch (product.productType) {
     case ProductType.SIMPLE:
       return Math.floor(num(product.stock));
+
+    case ProductType.PACKAGED:
+      return packTotalUnits(product);
 
     case ProductType.BULK:
       return 0;
@@ -685,7 +766,15 @@ export function calculateSaleUnitCost(
   product: Product,
   selectedOptionIds?: number[],
   _portionScoopCount?: number,
+  soldAsUnit = false,
 ): number {
+  if (product.productType === ProductType.PACKAGED) {
+    const packCost = num(product.costPrice);
+    if (!soldAsUnit) return packCost;
+    const per = unitsPerPackOf(product);
+    return Number((packCost / per).toFixed(4));
+  }
+
   const isComposite = product.productType === ProductType.COMPOSITE;
 
   if (!selectedOptionIds?.length || !product.optionGroups?.length) {
@@ -732,7 +821,12 @@ export function calculateSaleUnitPrice(
   product: Product,
   selectedOptionIds?: number[],
   portionScoopCount?: number,
+  soldAsUnit = false,
 ): number {
+  if (product.productType === ProductType.PACKAGED) {
+    return soldAsUnit ? num(product.unitSalePrice) : num(product.salePrice);
+  }
+
   let price = num(product.salePrice);
 
   if (

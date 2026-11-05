@@ -6,7 +6,7 @@ import { SaleItem } from './entities/sale-item.entity';
 import { Product } from '../products/entities/product.entity';
 import { CashSession } from '../cash-sessions/entities/cash-session.entity';
 import { CreateSaleDto, ReverseSaleDto } from './dto/sale.dto';
-import { CashSessionStatus, PaymentMethod, SaleStatus } from '../common/enums';
+import { CashSessionStatus, PaymentMethod, ProductType, SaleStatus } from '../common/enums';
 import { calculateTaxFromIncludedPrice, generateTicketNumber } from '../common/utils/tax.util';
 import { SettingsService } from '../settings/settings.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -120,18 +120,31 @@ export class SalesService {
         throw new NotFoundException(`Producto ${item.productId} no encontrado`);
       }
 
+      const soldAsUnit = Boolean(item.soldAsUnit);
       const deductions = await planStockDeductions(
         manager,
         product,
         item.quantity,
         storeId,
         item.selectedOptionIds,
+        true,
+        soldAsUnit,
       );
       const reference = `SALE-${Date.now()}-${product.id}`;
       await applyStockDeductions(manager, deductions, storeId, userId, reference);
 
-      const unitPrice = calculateSaleUnitPrice(product, item.selectedOptionIds, item.portionScoopCount);
-      const unitCost = calculateSaleUnitCost(product, item.selectedOptionIds, item.portionScoopCount);
+      const unitPrice = calculateSaleUnitPrice(
+        product,
+        item.selectedOptionIds,
+        item.portionScoopCount,
+        soldAsUnit,
+      );
+      const unitCost = calculateSaleUnitCost(
+        product,
+        item.selectedOptionIds,
+        item.portionScoopCount,
+        soldAsUnit,
+      );
       const subtotal = unitPrice * item.quantity;
       totalWithTax += subtotal;
       profit += (unitPrice - unitCost) * item.quantity;
@@ -139,6 +152,9 @@ export class SalesService {
       let productName = product.name;
       let selectedOptions: { optionIds: number[]; labels: string[] } | null = null;
       const labels: string[] = [];
+      if (product.productType === ProductType.PACKAGED) {
+        labels.push(soldAsUnit ? 'Unidad' : 'Caja');
+      }
       if (item.portionScoopCount && item.portionScoopCount > 0) {
         labels.push(`${item.portionScoopCount} bola${item.portionScoopCount > 1 ? 's' : ''}`);
       }
@@ -169,6 +185,7 @@ export class SalesService {
           subtotal,
           selectedOptions,
           portionScoopCount: item.portionScoopCount ?? null,
+          soldAsUnit,
         }),
       );
     }
@@ -250,6 +267,7 @@ export class SalesService {
           storeId,
           optionIds,
           false,
+          Boolean(item.soldAsUnit),
         );
 
         await applyStockRestorations(

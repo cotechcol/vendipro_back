@@ -285,9 +285,36 @@ export async function runProductMigration(connection: mysql.Connection): Promise
     if (await columnExists(connection, 'products', 'product_type')) {
       await connection.query(`
         ALTER TABLE products
-        MODIFY COLUMN product_type ENUM('simple','bulk','portion','composite','prepared') NOT NULL DEFAULT 'simple'
+        MODIFY COLUMN product_type ENUM('simple','bulk','portion','composite','prepared','packaged') NOT NULL DEFAULT 'simple'
       `);
-      console.log('[product-migration] product_type incluye prepared');
+      console.log('[product-migration] product_type incluye packaged');
+    }
+
+    if (!(await columnExists(connection, 'products', 'units_per_pack'))) {
+      await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN units_per_pack INT NULL
+        AFTER scoop_prices
+      `);
+      console.log('[product-migration] Columna units_per_pack agregada');
+    }
+
+    if (!(await columnExists(connection, 'products', 'unit_sale_price'))) {
+      await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN unit_sale_price DECIMAL(12,2) NULL
+        AFTER units_per_pack
+      `);
+      console.log('[product-migration] Columna unit_sale_price agregada');
+    }
+
+    if (!(await columnExists(connection, 'products', 'loose_units'))) {
+      await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN loose_units INT NOT NULL DEFAULT 0
+        AFTER unit_sale_price
+      `);
+      console.log('[product-migration] Columna loose_units agregada');
     }
 
     if (!(await columnExists(connection, 'products', 'recipe_batch_size'))) {

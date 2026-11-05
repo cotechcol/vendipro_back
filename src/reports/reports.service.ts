@@ -45,7 +45,7 @@ export class ReportsService {
     const lowQb = this.productRepo.createQueryBuilder('p')
       .where('p.active = true')
       .andWhere('p.productType IN (:...types)', {
-        types: [ProductType.SIMPLE, ProductType.BULK, ProductType.PREPARED],
+        types: [ProductType.SIMPLE, ProductType.BULK, ProductType.PREPARED, ProductType.PACKAGED],
       })
       .andWhere('p.stock <= p.minStock');
     if (storeId) lowQb.andWhere('p.storeId = :storeId', { storeId });
@@ -101,7 +101,9 @@ export class ReportsService {
 
     const stockNum = (p: Product) => Number(p.stock ?? 0);
     const stockProducts = products.filter(
-      (p) => p.productType === ProductType.SIMPLE || p.productType === ProductType.BULK,
+      (p) => p.productType === ProductType.SIMPLE
+        || p.productType === ProductType.BULK
+        || p.productType === ProductType.PACKAGED,
     );
 
     const totalValue = stockProducts.reduce(
@@ -109,7 +111,7 @@ export class ReportsService {
       0,
     );
     const totalRetail = products
-      .filter((p) => p.productType === ProductType.SIMPLE)
+      .filter((p) => p.productType === ProductType.SIMPLE || p.productType === ProductType.PACKAGED)
       .reduce((s, p) => s + Number(p.salePrice) * stockNum(p), 0);
 
     return {
@@ -118,7 +120,7 @@ export class ReportsService {
         totalProducts: products.length,
         /** Solo productos por unidad (botellas, paquetes…) — no gramos de insumos */
         totalUnits: products
-          .filter((p) => p.productType === ProductType.SIMPLE)
+          .filter((p) => p.productType === ProductType.SIMPLE || p.productType === ProductType.PACKAGED)
           .reduce((s, p) => s + Math.floor(stockNum(p)), 0),
         bulkInsumos: products.filter(
           (p) => p.productType === ProductType.BULK && stockNum(p) > 0,

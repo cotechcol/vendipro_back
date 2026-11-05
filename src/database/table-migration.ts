@@ -9,6 +9,19 @@ async function tableExists(connection: mysql.Connection, table: string): Promise
   return rows.length > 0;
 }
 
+async function columnExists(
+  connection: mysql.Connection,
+  table: string,
+  column: string,
+): Promise<boolean> {
+  const [rows] = await connection.query<mysql.RowDataPacket[]>(
+    `SELECT 1 FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [table, column],
+  );
+  return rows.length > 0;
+}
+
 async function indexExists(
   connection: mysql.Connection,
   table: string,
@@ -118,6 +131,17 @@ export async function runTableMigration(connection: mysql.Connection): Promise<v
         ) ENGINE=InnoDB
       `);
       console.log('[table-migration] Tabla table_order_items creada');
+    }
+
+    if (
+      await tableExists(connection, 'table_order_items')
+      && !(await columnExists(connection, 'table_order_items', 'sold_as_unit'))
+    ) {
+      await connection.query(`
+        ALTER TABLE table_order_items
+        ADD COLUMN sold_as_unit TINYINT(1) NOT NULL DEFAULT 0 AFTER portion_scoop_count
+      `);
+      console.log('[table-migration] Columna table_order_items.sold_as_unit agregada');
     }
 
     console.log('[table-migration] Esquema de mesas actualizado');

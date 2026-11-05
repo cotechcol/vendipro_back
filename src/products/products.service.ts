@@ -311,6 +311,20 @@ export class ProductsService {
     if (type === ProductType.BULK && !dto.stockUnit) {
       throw new BadRequestException('Indica la unidad del insumo (g, ml o uds)');
     }
+    if (type === ProductType.PACKAGED) {
+      const per = 'unitsPerPack' in dto ? Number(dto.unitsPerPack) : 0;
+      const unitPrice = 'unitSalePrice' in dto ? Number(dto.unitSalePrice) : 0;
+      const packPrice = 'salePrice' in dto ? Number(dto.salePrice) : 0;
+      if (!Number.isInteger(per) || per < 2) {
+        throw new BadRequestException('Indica cuántas unidades trae cada caja (mínimo 2)');
+      }
+      if (!(unitPrice > 0)) {
+        throw new BadRequestException('Indica el precio de la unidad suelta');
+      }
+      if (!(packPrice > 0)) {
+        throw new BadRequestException('Indica el precio de la caja completa');
+      }
+    }
   }
 
   async create(dto: CreateProductDto, ctx: StoreContext) {
@@ -340,6 +354,9 @@ export class ProductsService {
             : productType === ProductType.PORTION ? StockUnit.G
               : StockUnit.UNIT
         ),
+        unitsPerPack: productType === ProductType.PACKAGED ? dto.unitsPerPack ?? null : null,
+        unitSalePrice: productType === ProductType.PACKAGED ? dto.unitSalePrice ?? null : null,
+        looseUnits: 0,
         stock: productType === ProductType.PORTION || productType === ProductType.COMPOSITE
           ? 0
           : (dto.stock ?? 0),
@@ -443,6 +460,19 @@ export class ProductsService {
       if (invalid) {
         throw new BadRequestException('Los productos por unidad solo admiten adicionales');
       }
+    }
+
+    if (existing.productType === ProductType.PACKAGED) {
+      this.validateProductDto(
+        {
+          ...dto,
+          productType: ProductType.PACKAGED,
+          unitsPerPack: dto.unitsPerPack ?? existing.unitsPerPack ?? undefined,
+          unitSalePrice: dto.unitSalePrice ?? Number(existing.unitSalePrice) ?? undefined,
+          salePrice: dto.salePrice ?? Number(existing.salePrice),
+        } as CreateProductDto,
+        ProductType.PACKAGED,
+      );
     }
 
     if (existing.productType === ProductType.PREPARED && (dto.recipe || dto.recipeBatchSize !== undefined)) {

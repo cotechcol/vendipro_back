@@ -92,6 +92,10 @@ export class AddTableOrderItemDto {
   portionScoopCount?: number;
 
   @IsOptional()
+  @IsBoolean()
+  soldAsUnit?: boolean;
+
+  @IsOptional()
   @IsString()
   notes?: string;
 }

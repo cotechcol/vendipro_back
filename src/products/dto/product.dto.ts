@@ -128,6 +128,18 @@ export class CreateProductDto {
   @Type(() => ProductOptionGroupDto)
   optionGroups?: ProductOptionGroupDto[];
 
+  @ValidateIf((o) => o.productType === ProductType.PACKAGED)
+  @Type(() => Number)
+  @IsInt()
+  @Min(2)
+  unitsPerPack?: number;
+
+  @ValidateIf((o) => o.productType === ProductType.PACKAGED)
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  unitSalePrice?: number;
+
   @ValidateIf((o) => o.productType !== ProductType.BULK && o.productType !== ProductType.PREPARED)
   @Type(() => Number)
   @IsNumber()
@@ -200,6 +212,18 @@ export class UpdateProductDto {
   @IsNumber()
   @Min(0.001)
   portionSize?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(2)
+  unitsPerPack?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  unitSalePrice?: number;
 
   @IsOptional()
   @Type(() => Number)

@@ -147,7 +147,7 @@ export class InventoryService {
       throw new BadRequestException('Selecciona al menos un producto');
     }
 
-    const allowedTypes = [ProductType.SIMPLE, ProductType.BULK, ProductType.PREPARED];
+    const allowedTypes = [ProductType.SIMPLE, ProductType.BULK, ProductType.PREPARED, ProductType.PACKAGED];
 
     return this.dataSource.transaction(async (manager) => {
       const products = await manager.find(Product, {
@@ -172,12 +172,14 @@ export class InventoryService {
 
       for (const product of products) {
         const stockBefore = Number(product.stock);
-        if (stockBefore <= 0) {
+        const loose = Number(product.looseUnits ?? 0);
+        if (stockBefore <= 0 && loose <= 0) {
           skipped += 1;
           continue;
         }
 
         product.stock = 0;
+        product.looseUnits = 0;
         await manager.save(product);
 
         await manager.save(manager.create(InventoryMovement, {

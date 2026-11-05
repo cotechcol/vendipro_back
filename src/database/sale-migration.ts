@@ -98,6 +98,13 @@ export async function runSaleMigration(connection: mysql.Connection): Promise<vo
         `);
         console.log('[sale-migration] Columna sale_items.portion_scoop_count agregada');
       }
+      if (!(await columnExists(connection, 'sale_items', 'sold_as_unit'))) {
+        await connection.query(`
+          ALTER TABLE sale_items
+          ADD COLUMN sold_as_unit TINYINT(1) NOT NULL DEFAULT 0 AFTER portion_scoop_count
+        `);
+        console.log('[sale-migration] Columna sale_items.sold_as_unit agregada');
+      }
     }
 
     if (await tableExists(connection, 'inventory_movements')) {
