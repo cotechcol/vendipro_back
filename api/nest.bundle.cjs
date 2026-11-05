@@ -383,9 +383,33 @@ var require_product_migration = __commonJS({
         if (await columnExists(connection, "products", "product_type")) {
           await connection.query(`
         ALTER TABLE products
-        MODIFY COLUMN product_type ENUM('simple','bulk','portion','composite','prepared') NOT NULL DEFAULT 'simple'
+        MODIFY COLUMN product_type ENUM('simple','bulk','portion','composite','prepared','packaged') NOT NULL DEFAULT 'simple'
       `);
-          console.log("[product-migration] product_type incluye prepared");
+          console.log("[product-migration] product_type incluye packaged");
+        }
+        if (!await columnExists(connection, "products", "units_per_pack")) {
+          await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN units_per_pack INT NULL
+        AFTER scoop_prices
+      `);
+          console.log("[product-migration] Columna units_per_pack agregada");
+        }
+        if (!await columnExists(connection, "products", "unit_sale_price")) {
+          await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN unit_sale_price DECIMAL(12,2) NULL
+        AFTER units_per_pack
+      `);
+          console.log("[product-migration] Columna unit_sale_price agregada");
+        }
+        if (!await columnExists(connection, "products", "loose_units")) {
+          await connection.query(`
+        ALTER TABLE products
+        ADD COLUMN loose_units INT NOT NULL DEFAULT 0
+        AFTER unit_sale_price
+      `);
+          console.log("[product-migration] Columna loose_units agregada");
         }
         if (!await columnExists(connection, "products", "recipe_batch_size")) {
           await connection.query(`
@@ -460,6 +484,11 @@ var require_table_migration = __commonJS({
     async function tableExists(connection, table) {
       const [rows] = await connection.query(`SELECT 1 FROM information_schema.TABLES
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]);
+      return rows.length > 0;
+    }
+    async function columnExists(connection, table, column) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, column]);
       return rows.length > 0;
     }
     async function indexExists(connection, table, indexName) {
@@ -562,6 +591,13 @@ var require_table_migration = __commonJS({
       `);
           console.log("[table-migration] Tabla table_order_items creada");
         }
+        if (await tableExists(connection, "table_order_items") && !await columnExists(connection, "table_order_items", "sold_as_unit")) {
+          await connection.query(`
+        ALTER TABLE table_order_items
+        ADD COLUMN sold_as_unit TINYINT(1) NOT NULL DEFAULT 0 AFTER portion_scoop_count
+      `);
+          console.log("[table-migration] Columna table_order_items.sold_as_unit agregada");
+        }
         console.log("[table-migration] Esquema de mesas actualizado");
       } catch (err) {
         throw err;
@@ -639,6 +675,13 @@ var require_sale_migration = __commonJS({
           ADD COLUMN portion_scoop_count INT NULL AFTER selected_options
         `);
             console.log("[sale-migration] Columna sale_items.portion_scoop_count agregada");
+          }
+          if (!await columnExists(connection, "sale_items", "sold_as_unit")) {
+            await connection.query(`
+          ALTER TABLE sale_items
+          ADD COLUMN sold_as_unit TINYINT(1) NOT NULL DEFAULT 0 AFTER portion_scoop_count
+        `);
+            console.log("[sale-migration] Columna sale_items.sold_as_unit agregada");
           }
         }
         if (await tableExists(connection, "inventory_movements")) {
@@ -784,7 +827,7 @@ var require_migration_bootstrap = __commonJS({
     var table_migration_1 = require_table_migration();
     var sale_migration_1 = require_sale_migration();
     var mysql_singleton_1 = require_mysql_singleton();
-    exports2.SCHEMA_VERSION = 8;
+    exports2.SCHEMA_VERSION = 9;
     var migrationPromise = null;
     function errorText(err) {
       const seen = /* @__PURE__ */ new Set();
@@ -946,6 +989,7 @@ var require_enums = __commonJS({
       ProductType2["PORTION"] = "portion";
       ProductType2["COMPOSITE"] = "composite";
       ProductType2["PREPARED"] = "prepared";
+      ProductType2["PACKAGED"] = "packaged";
     })(ProductType || (exports2.ProductType = ProductType = {}));
     var StockUnit;
     (function(StockUnit2) {
@@ -1884,6 +1928,9 @@ var require_product_entity = __commonJS({
       scoopCount;
       variableScoops;
       scoopPrices;
+      unitsPerPack;
+      unitSalePrice;
+      looseUnits;
       salePrice;
       costPrice;
       stock;
@@ -1967,6 +2014,18 @@ var require_product_entity = __commonJS({
       (0, typeorm_12.Column)({ name: "scoop_prices", type: "json", nullable: true }),
       __metadata("design:type", Object)
     ], Product.prototype, "scoopPrices", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "units_per_pack", type: "int", nullable: true }),
+      __metadata("design:type", Object)
+    ], Product.prototype, "unitsPerPack", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "unit_sale_price", type: "decimal", precision: 12, scale: 2, nullable: true }),
+      __metadata("design:type", Object)
+    ], Product.prototype, "unitSalePrice", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "loose_units", type: "int", default: 0 }),
+      __metadata("design:type", Number)
+    ], Product.prototype, "looseUnits", void 0);
     __decorate([
       (0, typeorm_12.Column)({ name: "sale_price", type: "decimal", precision: 12, scale: 2 }),
       __metadata("design:type", Number)
@@ -2066,6 +2125,7 @@ var require_sale_item_entity = __commonJS({
       subtotal;
       selectedOptions;
       portionScoopCount;
+      soldAsUnit;
     };
     exports2.SaleItem = SaleItem;
     __decorate([
@@ -2118,6 +2178,10 @@ var require_sale_item_entity = __commonJS({
       (0, typeorm_12.Column)({ name: "portion_scoop_count", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], SaleItem.prototype, "portionScoopCount", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "sold_as_unit", type: "boolean", default: false }),
+      __metadata("design:type", Boolean)
+    ], SaleItem.prototype, "soldAsUnit", void 0);
     exports2.SaleItem = SaleItem = __decorate([
       (0, typeorm_12.Entity)("sale_items")
     ], SaleItem);
@@ -4112,6 +4176,10 @@ var require_product_stock_util = __commonJS({
   "dist/products/product-stock.util.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.unitsPerPackOf = unitsPerPackOf;
+    exports2.packTotalUnits = packTotalUnits;
+    exports2.splitPackUnits = splitPackUnits;
+    exports2.packagedUnitsForSale = packagedUnitsForSale;
     exports2.planStockDeductions = planStockDeductions;
     exports2.applyStockDeductions = applyStockDeductions;
     exports2.applyStockRestorations = applyStockRestorations;
@@ -4128,6 +4196,23 @@ var require_product_stock_util = __commonJS({
     var product_option_group_entity_1 = require_product_option_group_entity();
     var inventory_movement_entity_1 = require_inventory_movement_entity();
     var enums_1 = require_enums();
+    function unitsPerPackOf(product) {
+      return Math.max(1, Math.floor(num(product.unitsPerPack)));
+    }
+    function packTotalUnits(product) {
+      return Math.floor(num(product.stock)) * unitsPerPackOf(product) + Math.floor(num(product.looseUnits));
+    }
+    function splitPackUnits(totalUnits, perPack) {
+      const per = Math.max(1, Math.floor(perPack));
+      const safe = Math.max(0, Math.floor(totalUnits));
+      return {
+        stock: Math.floor(safe / per),
+        looseUnits: safe % per
+      };
+    }
+    function packagedUnitsForSale(saleQty, soldAsUnit, perPack) {
+      return soldAsUnit ? saleQty : saleQty * Math.max(1, Math.floor(perPack));
+    }
     function num(v) {
       return Number(v ?? 0);
     }
@@ -4216,7 +4301,7 @@ var require_product_stock_util = __commonJS({
       }
       return deductions;
     }
-    async function planStockDeductions(manager, product, saleQty, storeId, selectedOptionIds, validateStock = true) {
+    async function planStockDeductions(manager, product, saleQty, storeId, selectedOptionIds, validateStock = true, soldAsUnit = false) {
       if (saleQty <= 0) {
         throw new common_1.BadRequestException("Cantidad inv\xE1lida");
       }
@@ -4260,6 +4345,23 @@ var require_product_stock_util = __commonJS({
             throw new common_1.BadRequestException(`Stock insuficiente para ${product.name}`);
           }
           return [{ productId: product.id, productName: product.name, quantity: saleQty }];
+        }
+        case enums_1.ProductType.PACKAGED: {
+          const per = unitsPerPackOf(product);
+          if (per < 2) {
+            throw new common_1.BadRequestException(`${product.name} no tiene unidades por caja configuradas`);
+          }
+          const needed = packagedUnitsForSale(saleQty, soldAsUnit, per);
+          const available = packTotalUnits(product);
+          if (validateStock && available < needed) {
+            throw new common_1.BadRequestException(soldAsUnit ? `Stock insuficiente para ${product.name} (quedan ${available} unidades)` : `Stock insuficiente para ${product.name} (quedan ${Math.floor(available / per)} cajas)`);
+          }
+          return [{
+            productId: product.id,
+            productName: product.name,
+            quantity: needed,
+            notes: soldAsUnit ? `Venta por unidad: ${saleQty}` : `Venta de ${saleQty} caja${saleQty === 1 ? "" : "s"}`
+          }];
         }
         case enums_1.ProductType.BULK:
           throw new common_1.BadRequestException(`${product.name} es un insumo base y no se vende directamente`);
@@ -4342,18 +4444,31 @@ var require_product_stock_util = __commonJS({
         const product = await manager.findOne(product_entity_1.Product, { where: { id: d.productId, storeId } });
         if (!product)
           continue;
-        const stockBefore = num(product.stock);
-        const stockAfter = Number((stockBefore - d.quantity).toFixed(3));
-        product.stock = stockAfter;
+        let stockBefore = num(product.stock);
+        let stockAfter;
+        let movementQty = d.quantity;
+        if (product.productType === enums_1.ProductType.PACKAGED) {
+          const per = unitsPerPackOf(product);
+          const afterUnits = packTotalUnits(product) - d.quantity;
+          const split = splitPackUnits(afterUnits, per);
+          stockAfter = split.stock;
+          movementQty = Number((stockBefore - stockAfter).toFixed(3));
+          product.stock = stockAfter;
+          product.looseUnits = split.looseUnits;
+        } else {
+          stockAfter = Number((stockBefore - d.quantity).toFixed(3));
+          product.stock = stockAfter;
+        }
         await manager.save(product);
         await manager.save(manager.create(inventory_movement_entity_1.InventoryMovement, {
           storeId,
           productId: product.id,
           type: enums_1.InventoryMovementType.SALE,
-          quantity: d.quantity,
+          quantity: movementQty,
           stockBefore,
           stockAfter,
           reference,
+          notes: d.notes,
           userId
         }));
       }
@@ -4363,19 +4478,31 @@ var require_product_stock_util = __commonJS({
         const product = await manager.findOne(product_entity_1.Product, { where: { id: d.productId, storeId } });
         if (!product)
           continue;
-        const stockBefore = num(product.stock);
-        const stockAfter = Number((stockBefore + d.quantity).toFixed(3));
-        product.stock = stockAfter;
+        let stockBefore = num(product.stock);
+        let stockAfter;
+        let movementQty = d.quantity;
+        if (product.productType === enums_1.ProductType.PACKAGED) {
+          const per = unitsPerPackOf(product);
+          const afterUnits = packTotalUnits(product) + d.quantity;
+          const split = splitPackUnits(afterUnits, per);
+          stockAfter = split.stock;
+          movementQty = Number((stockAfter - stockBefore).toFixed(3));
+          product.stock = stockAfter;
+          product.looseUnits = split.looseUnits;
+        } else {
+          stockAfter = Number((stockBefore + d.quantity).toFixed(3));
+          product.stock = stockAfter;
+        }
         await manager.save(product);
         await manager.save(manager.create(inventory_movement_entity_1.InventoryMovement, {
           storeId,
           productId: product.id,
           type: enums_1.InventoryMovementType.SALE_REVERSAL,
-          quantity: d.quantity,
+          quantity: movementQty,
           stockBefore,
           stockAfter,
           reference,
-          notes: notes || void 0,
+          notes: notes || d.notes || void 0,
           userId
         }));
       }
@@ -4384,6 +4511,8 @@ var require_product_stock_util = __commonJS({
       switch (product.productType) {
         case enums_1.ProductType.SIMPLE:
           return Math.floor(num(product.stock));
+        case enums_1.ProductType.PACKAGED:
+          return packTotalUnits(product);
         case enums_1.ProductType.BULK:
         case enums_1.ProductType.PREPARED:
           return 0;
@@ -4462,6 +4591,8 @@ var require_product_stock_util = __commonJS({
       switch (product.productType) {
         case enums_1.ProductType.SIMPLE:
           return Math.floor(num(product.stock));
+        case enums_1.ProductType.PACKAGED:
+          return packTotalUnits(product);
         case enums_1.ProductType.BULK:
           return 0;
         case enums_1.ProductType.PORTION: {
@@ -4624,7 +4755,14 @@ var require_product_stock_util = __commonJS({
         quantity: entry.quantity
       }));
     }
-    function calculateSaleUnitCost(product, selectedOptionIds, _portionScoopCount) {
+    function calculateSaleUnitCost(product, selectedOptionIds, _portionScoopCount, soldAsUnit = false) {
+      if (product.productType === enums_1.ProductType.PACKAGED) {
+        const packCost = num(product.costPrice);
+        if (!soldAsUnit)
+          return packCost;
+        const per = unitsPerPackOf(product);
+        return Number((packCost / per).toFixed(4));
+      }
       const isComposite = product.productType === enums_1.ProductType.COMPOSITE;
       if (!selectedOptionIds?.length || !product.optionGroups?.length) {
         return num(product.costPrice);
@@ -4659,7 +4797,10 @@ var require_product_stock_util = __commonJS({
       }
       return selectedOptionIds.filter((id) => ids.has(id)).length;
     }
-    function calculateSaleUnitPrice(product, selectedOptionIds, portionScoopCount) {
+    function calculateSaleUnitPrice(product, selectedOptionIds, portionScoopCount, soldAsUnit = false) {
+      if (product.productType === enums_1.ProductType.PACKAGED) {
+        return soldAsUnit ? num(product.unitSalePrice) : num(product.salePrice);
+      }
       let price = num(product.salePrice);
       if (product.productType === enums_1.ProductType.PORTION && product.variableScoops && product.scoopPrices?.length) {
         const flavorCount = countSelectedByKind(product, selectedOptionIds, enums_1.OptionGroupKind.FLAVOR);
@@ -5093,6 +5234,20 @@ var require_products_service = __commonJS({
         if (type === enums_1.ProductType.BULK && !dto.stockUnit) {
           throw new common_1.BadRequestException("Indica la unidad del insumo (g, ml o uds)");
         }
+        if (type === enums_1.ProductType.PACKAGED) {
+          const per = "unitsPerPack" in dto ? Number(dto.unitsPerPack) : 0;
+          const unitPrice = "unitSalePrice" in dto ? Number(dto.unitSalePrice) : 0;
+          const packPrice = "salePrice" in dto ? Number(dto.salePrice) : 0;
+          if (!Number.isInteger(per) || per < 2) {
+            throw new common_1.BadRequestException("Indica cu\xE1ntas unidades trae cada caja (m\xEDnimo 2)");
+          }
+          if (!(unitPrice > 0)) {
+            throw new common_1.BadRequestException("Indica el precio de la unidad suelta");
+          }
+          if (!(packPrice > 0)) {
+            throw new common_1.BadRequestException("Indica el precio de la caja completa");
+          }
+        }
       }
       async create(dto, ctx) {
         const storeId = this.scopeStore(ctx);
@@ -5115,6 +5270,9 @@ var require_products_service = __commonJS({
             storeId,
             productType,
             stockUnit: dto.stockUnit ?? (productType === enums_1.ProductType.BULK || productType === enums_1.ProductType.PREPARED ? enums_1.StockUnit.G : productType === enums_1.ProductType.PORTION ? enums_1.StockUnit.G : enums_1.StockUnit.UNIT),
+            unitsPerPack: productType === enums_1.ProductType.PACKAGED ? dto.unitsPerPack ?? null : null,
+            unitSalePrice: productType === enums_1.ProductType.PACKAGED ? dto.unitSalePrice ?? null : null,
+            looseUnits: 0,
             stock: productType === enums_1.ProductType.PORTION || productType === enums_1.ProductType.COMPOSITE ? 0 : dto.stock ?? 0,
             salePrice: productType === enums_1.ProductType.BULK || productType === enums_1.ProductType.PREPARED ? 0 : dto.salePrice,
             recipeBatchSize: productType === enums_1.ProductType.PREPARED ? dto.recipeBatchSize ?? null : null,
@@ -5176,6 +5334,15 @@ var require_products_service = __commonJS({
           if (invalid) {
             throw new common_1.BadRequestException("Los productos por unidad solo admiten adicionales");
           }
+        }
+        if (existing.productType === enums_1.ProductType.PACKAGED) {
+          this.validateProductDto({
+            ...dto,
+            productType: enums_1.ProductType.PACKAGED,
+            unitsPerPack: dto.unitsPerPack ?? existing.unitsPerPack ?? void 0,
+            unitSalePrice: dto.unitSalePrice ?? Number(existing.unitSalePrice) ?? void 0,
+            salePrice: dto.salePrice ?? Number(existing.salePrice)
+          }, enums_1.ProductType.PACKAGED);
         }
         if (existing.productType === enums_1.ProductType.PREPARED && (dto.recipe || dto.recipeBatchSize !== void 0)) {
           this.validateProductDto({ ...dto, productType: enums_1.ProductType.PREPARED }, enums_1.ProductType.PREPARED);
@@ -22282,6 +22449,8 @@ var require_product_dto = __commonJS({
       variableScoops;
       scoopPrices;
       optionGroups;
+      unitsPerPack;
+      unitSalePrice;
       salePrice;
       costPrice;
       stock;
@@ -22357,6 +22526,20 @@ var require_product_dto = __commonJS({
       __metadata("design:type", Array)
     ], CreateProductDto.prototype, "optionGroups", void 0);
     __decorate([
+      (0, class_validator_1.ValidateIf)((o) => o.productType === enums_1.ProductType.PACKAGED),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      (0, class_validator_1.Min)(2),
+      __metadata("design:type", Number)
+    ], CreateProductDto.prototype, "unitsPerPack", void 0);
+    __decorate([
+      (0, class_validator_1.ValidateIf)((o) => o.productType === enums_1.ProductType.PACKAGED),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsNumber)(),
+      (0, class_validator_1.Min)(0),
+      __metadata("design:type", Number)
+    ], CreateProductDto.prototype, "unitSalePrice", void 0);
+    __decorate([
       (0, class_validator_1.ValidateIf)((o) => o.productType !== enums_1.ProductType.BULK && o.productType !== enums_1.ProductType.PREPARED),
       (0, class_transformer_1.Type)(() => Number),
       (0, class_validator_1.IsNumber)(),
@@ -22415,6 +22598,8 @@ var require_product_dto = __commonJS({
       stockUnit;
       baseProductId;
       portionSize;
+      unitsPerPack;
+      unitSalePrice;
       salePrice;
       costPrice;
       minStock;
@@ -22462,6 +22647,20 @@ var require_product_dto = __commonJS({
       (0, class_validator_1.Min)(1e-3),
       __metadata("design:type", Number)
     ], UpdateProductDto.prototype, "portionSize", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      (0, class_validator_1.Min)(2),
+      __metadata("design:type", Number)
+    ], UpdateProductDto.prototype, "unitsPerPack", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsNumber)(),
+      (0, class_validator_1.Min)(0),
+      __metadata("design:type", Number)
+    ], UpdateProductDto.prototype, "unitSalePrice", void 0);
     __decorate([
       (0, class_validator_1.IsOptional)(),
       (0, class_transformer_1.Type)(() => Number),
@@ -23763,7 +23962,7 @@ var require_inventory_service = __commonJS({
         if (!uniqueIds.length) {
           throw new common_1.BadRequestException("Selecciona al menos un producto");
         }
-        const allowedTypes = [enums_1.ProductType.SIMPLE, enums_1.ProductType.BULK, enums_1.ProductType.PREPARED];
+        const allowedTypes = [enums_1.ProductType.SIMPLE, enums_1.ProductType.BULK, enums_1.ProductType.PREPARED, enums_1.ProductType.PACKAGED];
         return this.dataSource.transaction(async (manager) => {
           const products = await manager.find(product_entity_1.Product, {
             where: { id: (0, typeorm_2.In)(uniqueIds), storeId }
@@ -23781,11 +23980,13 @@ var require_inventory_service = __commonJS({
           let skipped = 0;
           for (const product of products) {
             const stockBefore = Number(product.stock);
-            if (stockBefore <= 0) {
+            const loose = Number(product.looseUnits ?? 0);
+            if (stockBefore <= 0 && loose <= 0) {
               skipped += 1;
               continue;
             }
             product.stock = 0;
+            product.looseUnits = 0;
             await manager.save(product);
             await manager.save(manager.create(inventory_movement_entity_1.InventoryMovement, {
               storeId,
@@ -24929,17 +25130,21 @@ var require_sales_service = __commonJS({
           if (!product || !product.active) {
             throw new common_1.NotFoundException(`Producto ${item.productId} no encontrado`);
           }
-          const deductions = await (0, product_stock_util_1.planStockDeductions)(manager, product, item.quantity, storeId, item.selectedOptionIds);
+          const soldAsUnit = Boolean(item.soldAsUnit);
+          const deductions = await (0, product_stock_util_1.planStockDeductions)(manager, product, item.quantity, storeId, item.selectedOptionIds, true, soldAsUnit);
           const reference = `SALE-${Date.now()}-${product.id}`;
           await (0, product_stock_util_1.applyStockDeductions)(manager, deductions, storeId, userId, reference);
-          const unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, item.selectedOptionIds, item.portionScoopCount);
-          const unitCost = (0, product_stock_util_1.calculateSaleUnitCost)(product, item.selectedOptionIds, item.portionScoopCount);
+          const unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, item.selectedOptionIds, item.portionScoopCount, soldAsUnit);
+          const unitCost = (0, product_stock_util_1.calculateSaleUnitCost)(product, item.selectedOptionIds, item.portionScoopCount, soldAsUnit);
           const subtotal2 = unitPrice * item.quantity;
           totalWithTax += subtotal2;
           profit += (unitPrice - unitCost) * item.quantity;
           let productName = product.name;
           let selectedOptions = null;
           const labels = [];
+          if (product.productType === enums_1.ProductType.PACKAGED) {
+            labels.push(soldAsUnit ? "Unidad" : "Caja");
+          }
           if (item.portionScoopCount && item.portionScoopCount > 0) {
             labels.push(`${item.portionScoopCount} bola${item.portionScoopCount > 1 ? "s" : ""}`);
           }
@@ -24967,7 +25172,8 @@ var require_sales_service = __commonJS({
             unitCost,
             subtotal: subtotal2,
             selectedOptions,
-            portionScoopCount: item.portionScoopCount ?? null
+            portionScoopCount: item.portionScoopCount ?? null,
+            soldAsUnit
           }));
         }
         const { subtotal, taxAmount, total } = (0, tax_util_1.calculateTaxFromIncludedPrice)(totalWithTax, taxRate);
@@ -25033,7 +25239,7 @@ var require_sales_service = __commonJS({
               throw new common_1.NotFoundException(`Producto ${item.productId} no encontrado para anular`);
             }
             const optionIds = item.selectedOptions?.optionIds;
-            const deductions = await (0, product_stock_util_1.planStockDeductions)(manager, product, item.quantity, storeId, optionIds, false);
+            const deductions = await (0, product_stock_util_1.planStockDeductions)(manager, product, item.quantity, storeId, optionIds, false, Boolean(item.soldAsUnit));
             await (0, product_stock_util_1.applyStockRestorations)(manager, deductions, storeId, userId, `${reference}-${product.id}`, `Anulaci\xF3n ${sale.ticketNumber}: ${reason}`);
           }
           await manager.update(sale_entity_1.Sale, { id: sale.id }, {
@@ -25085,6 +25291,7 @@ var require_sale_dto = __commonJS({
       quantity;
       selectedOptionIds;
       portionScoopCount;
+      soldAsUnit;
     };
     exports2.SaleItemDto = SaleItemDto;
     __decorate([
@@ -25112,6 +25319,11 @@ var require_sale_dto = __commonJS({
       (0, class_validator_1.Min)(1),
       __metadata("design:type", Number)
     ], SaleItemDto.prototype, "portionScoopCount", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsBoolean)(),
+      __metadata("design:type", Boolean)
+    ], SaleItemDto.prototype, "soldAsUnit", void 0);
     var CreateSaleDto = class {
       items;
       customerId;
@@ -25323,6 +25535,7 @@ var require_table_order_item_entity = __commonJS({
       selectedOptionIds;
       optionLabel;
       portionScoopCount;
+      soldAsUnit;
       notes;
       createdAt;
       updatedAt;
@@ -25374,6 +25587,10 @@ var require_table_order_item_entity = __commonJS({
       (0, typeorm_12.Column)({ name: "portion_scoop_count", type: "int", nullable: true }),
       __metadata("design:type", Object)
     ], TableOrderItem.prototype, "portionScoopCount", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "sold_as_unit", type: "boolean", default: false }),
+      __metadata("design:type", Boolean)
+    ], TableOrderItem.prototype, "soldAsUnit", void 0);
     __decorate([
       (0, typeorm_12.Column)({ type: "text", nullable: true }),
       __metadata("design:type", Object)
@@ -25696,6 +25913,7 @@ var require_table_dto = __commonJS({
       selectedOptionIds;
       optionLabel;
       portionScoopCount;
+      soldAsUnit;
       notes;
     };
     exports2.AddTableOrderItemDto = AddTableOrderItemDto;
@@ -25730,6 +25948,11 @@ var require_table_dto = __commonJS({
       (0, class_validator_1.Min)(1),
       __metadata("design:type", Number)
     ], AddTableOrderItemDto.prototype, "portionScoopCount", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsBoolean)(),
+      __metadata("design:type", Boolean)
+    ], AddTableOrderItemDto.prototype, "soldAsUnit", void 0);
     __decorate([
       (0, class_validator_1.IsOptional)(),
       (0, class_validator_1.IsString)(),
@@ -25941,10 +26164,11 @@ var require_tables_service = __commonJS({
         const storeId = this.scopeStore(ctx);
         const order = await this.getOpenOrder(orderId, storeId);
         const quantity = dto.quantity ?? 1;
-        const match = await this.findMatchingItem(order.id, dto.productId, dto.selectedOptionIds, dto.portionScoopCount);
+        const soldAsUnit = Boolean(dto.soldAsUnit);
+        const match = await this.findMatchingItem(order.id, dto.productId, dto.selectedOptionIds, dto.portionScoopCount, soldAsUnit);
         if (match) {
           const newQty = Number(match.quantity) + quantity;
-          await this.assertQuantityAvailable(dto.productId, storeId, newQty, match.selectedOptionIds);
+          await this.assertQuantityAvailable(dto.productId, storeId, newQty, match.selectedOptionIds, match.soldAsUnit);
           match.quantity = newQty;
           const saved2 = await this.itemRepo.save(match);
           const totals2 = await this.getOrderTotals(order.id);
@@ -25955,7 +26179,7 @@ var require_tables_service = __commonJS({
         let unitPrice;
         let productName;
         let optionLabel = null;
-        if (!needsOptions) {
+        if (!needsOptions && !soldAsUnit) {
           const lean = await this.loadProductLean(dto.productId, storeId);
           if (lean.productType === enums_1.ProductType.SIMPLE) {
             await this.assertQuantityAvailable(lean.id, storeId, quantity, null);
@@ -25964,16 +26188,17 @@ var require_tables_service = __commonJS({
             productName = lean.name;
           } else {
             product = await this.loadProduct(dto.productId, storeId);
-            await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, quantity, storeId, dto.selectedOptionIds);
-            unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, dto.selectedOptionIds, dto.portionScoopCount);
-            productName = product.name;
+            await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, quantity, storeId, dto.selectedOptionIds, true, soldAsUnit);
+            unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, dto.selectedOptionIds, dto.portionScoopCount, soldAsUnit);
+            optionLabel = product.productType === enums_1.ProductType.PACKAGED ? "Caja" : null;
+            productName = optionLabel ? `${product.name} (${optionLabel})` : product.name;
           }
         } else {
           product = await this.loadProduct(dto.productId, storeId);
-          await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, quantity, storeId, dto.selectedOptionIds);
-          optionLabel = dto.optionLabel?.trim() || this.buildOptionLabel(product, dto.selectedOptionIds, dto.portionScoopCount) || null;
+          await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, quantity, storeId, dto.selectedOptionIds, true, soldAsUnit);
+          optionLabel = dto.optionLabel?.trim() || (product.productType === enums_1.ProductType.PACKAGED ? soldAsUnit ? "Unidad" : "Caja" : null) || this.buildOptionLabel(product, dto.selectedOptionIds, dto.portionScoopCount) || null;
           productName = optionLabel ? `${product.name} (${optionLabel})` : product.name;
-          unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, dto.selectedOptionIds, dto.portionScoopCount);
+          unitPrice = (0, product_stock_util_1.calculateSaleUnitPrice)(product, dto.selectedOptionIds, dto.portionScoopCount, soldAsUnit);
         }
         const saved = await this.itemRepo.save(this.itemRepo.create({
           orderId: order.id,
@@ -25984,6 +26209,7 @@ var require_tables_service = __commonJS({
           selectedOptionIds: dto.selectedOptionIds?.length ? dto.selectedOptionIds : null,
           optionLabel,
           portionScoopCount: dto.portionScoopCount ?? null,
+          soldAsUnit,
           notes: dto.notes?.trim() || null
         }));
         const totals = await this.getOrderTotals(order.id);
@@ -26009,7 +26235,7 @@ var require_tables_service = __commonJS({
         if (!item)
           throw new common_1.NotFoundException("Producto de la mesa no encontrado");
         if (dto.quantity !== void 0) {
-          await this.assertQuantityAvailable(item.productId, storeId, dto.quantity, item.selectedOptionIds);
+          await this.assertQuantityAvailable(item.productId, storeId, dto.quantity, item.selectedOptionIds, item.soldAsUnit);
           item.quantity = dto.quantity;
         }
         if (dto.notes !== void 0)
@@ -26077,7 +26303,8 @@ var require_tables_service = __commonJS({
               productId: item.productId,
               quantity: item.quantity,
               selectedOptionIds: item.selectedOptionIds ?? void 0,
-              portionScoopCount: item.portionScoopCount ?? void 0
+              portionScoopCount: item.portionScoopCount ?? void 0,
+              soldAsUnit: item.soldAsUnit || void 0
             })),
             customerId: dto.customerId ?? order.customerId ?? void 0,
             paymentMethod: dto.paymentMethod ?? enums_1.PaymentMethod.CASH,
@@ -26129,16 +26356,16 @@ var require_tables_service = __commonJS({
           return false;
         return left.every((v, i) => v === right[i]);
       }
-      async findMatchingItem(orderId, productId, selectedOptionIds, portionScoopCount) {
+      async findMatchingItem(orderId, productId, selectedOptionIds, portionScoopCount, soldAsUnit = false) {
         const items = await this.itemRepo.find({ where: { orderId, productId } });
-        return items.find((item) => this.sameOptionIds(item.selectedOptionIds, selectedOptionIds) && (item.portionScoopCount ?? null) === (portionScoopCount ?? null)) ?? null;
+        return items.find((item) => this.sameOptionIds(item.selectedOptionIds, selectedOptionIds) && (item.portionScoopCount ?? null) === (portionScoopCount ?? null) && Boolean(item.soldAsUnit) === soldAsUnit) ?? null;
       }
-      async assertQuantityAvailable(productId, storeId, quantity, selectedOptionIds) {
+      async assertQuantityAvailable(productId, storeId, quantity, selectedOptionIds, soldAsUnit = false) {
         if (quantity <= 0) {
           throw new common_1.BadRequestException("Cantidad inv\xE1lida");
         }
         const lean = await this.loadProductLean(productId, storeId);
-        const needsFullPlan = lean.productType !== enums_1.ProductType.SIMPLE || (selectedOptionIds?.length ?? 0) > 0;
+        const needsFullPlan = lean.productType !== enums_1.ProductType.SIMPLE || soldAsUnit || (selectedOptionIds?.length ?? 0) > 0;
         if (!needsFullPlan) {
           if (Number(lean.stock) < quantity) {
             throw new common_1.BadRequestException(`Stock insuficiente para ${lean.name}`);
@@ -26146,7 +26373,7 @@ var require_tables_service = __commonJS({
           return;
         }
         const product = await this.loadProduct(productId, storeId);
-        await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, quantity, storeId, selectedOptionIds ?? void 0);
+        await (0, product_stock_util_1.planStockDeductions)(this.dataSource.manager, product, quantity, storeId, selectedOptionIds ?? void 0, true, soldAsUnit);
       }
       async loadProductLean(productId, storeId) {
         const product = await this.dataSource.manager.findOne(product_entity_1.Product, {
@@ -26160,7 +26387,10 @@ var require_tables_service = __commonJS({
             "salePrice",
             "costPrice",
             "scoopCount",
-            "variableScoops"
+            "variableScoops",
+            "unitsPerPack",
+            "unitSalePrice",
+            "looseUnits"
           ]
         });
         if (!product || !product.active) {
@@ -26496,7 +26726,7 @@ var require_reports_service = __commonJS({
         if (storeId)
           topQb.andWhere("s.storeId = :storeId", { storeId });
         const lowQb = this.productRepo.createQueryBuilder("p").where("p.active = true").andWhere("p.productType IN (:...types)", {
-          types: [enums_1.ProductType.SIMPLE, enums_1.ProductType.BULK, enums_1.ProductType.PREPARED]
+          types: [enums_1.ProductType.SIMPLE, enums_1.ProductType.BULK, enums_1.ProductType.PREPARED, enums_1.ProductType.PACKAGED]
         }).andWhere("p.stock <= p.minStock");
         if (storeId)
           lowQb.andWhere("p.storeId = :storeId", { storeId });
@@ -26544,14 +26774,14 @@ var require_reports_service = __commonJS({
           order: { name: "ASC" }
         });
         const stockNum = (p) => Number(p.stock ?? 0);
-        const stockProducts = products.filter((p) => p.productType === enums_1.ProductType.SIMPLE || p.productType === enums_1.ProductType.BULK);
+        const stockProducts = products.filter((p) => p.productType === enums_1.ProductType.SIMPLE || p.productType === enums_1.ProductType.BULK || p.productType === enums_1.ProductType.PACKAGED);
         const totalValue = stockProducts.reduce((s, p) => s + Number(p.costPrice) * stockNum(p), 0);
-        const totalRetail = products.filter((p) => p.productType === enums_1.ProductType.SIMPLE).reduce((s, p) => s + Number(p.salePrice) * stockNum(p), 0);
+        const totalRetail = products.filter((p) => p.productType === enums_1.ProductType.SIMPLE || p.productType === enums_1.ProductType.PACKAGED).reduce((s, p) => s + Number(p.salePrice) * stockNum(p), 0);
         return {
           products,
           summary: {
             totalProducts: products.length,
-            totalUnits: products.filter((p) => p.productType === enums_1.ProductType.SIMPLE).reduce((s, p) => s + Math.floor(stockNum(p)), 0),
+            totalUnits: products.filter((p) => p.productType === enums_1.ProductType.SIMPLE || p.productType === enums_1.ProductType.PACKAGED).reduce((s, p) => s + Math.floor(stockNum(p)), 0),
             bulkInsumos: products.filter((p) => p.productType === enums_1.ProductType.BULK && stockNum(p) > 0).length,
             inventoryCost: Number(totalValue.toFixed(2)),
             inventoryRetail: Number(totalRetail.toFixed(2))

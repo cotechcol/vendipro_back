@@ -34,7 +34,7 @@ await build({
   entryPoints: [path.join(root, 'dist', 'vercel.js')],
   bundle: true,
   platform: 'node',
-  target: 'node20',
+  target: 'node22',
   format: 'cjs',
   outfile: outFile,
   external,
