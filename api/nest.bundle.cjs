@@ -24843,6 +24843,7 @@ var require_sales_service = __commonJS({
     var enums_1 = require_enums();
     var tax_util_1 = require_tax_util();
     var settings_service_1 = require_settings_service();
+    var setting_entity_1 = require_setting_entity();
     var store_context_util_1 = require_store_context_util();
     var date_util_1 = require_date_util();
     var product_stock_util_1 = require_product_stock_util();
@@ -24902,7 +24903,8 @@ var require_sales_service = __commonJS({
         return this.createSaleInTransaction(manager, dto, userId, storeId);
       }
       async createSaleInTransaction(manager, dto, userId, storeId) {
-        const taxRate = await this.settingsService.getTaxRate(storeId);
+        const setting = await manager.findOne(setting_entity_1.Setting, { where: { storeId } });
+        const taxRate = Number(setting?.taxRate ?? 0.19);
         const cashSession = await manager.findOne(cash_session_entity_1.CashSession, {
           where: { storeId, userId, status: enums_1.CashSessionStatus.OPEN }
         });
@@ -24951,7 +24953,7 @@ var require_sales_service = __commonJS({
             }
           }
           if (labels.length) {
-            productName = `${product.name} (${labels.join(", ")})`;
+            productName = `${product.name} (${labels.join(", ")})`.slice(0, 200);
             selectedOptions = {
               optionIds: item.selectedOptionIds ?? [],
               labels
