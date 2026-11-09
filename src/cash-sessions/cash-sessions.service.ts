@@ -8,12 +8,14 @@ import { CashSessionStatus, PaymentMethod, SaleStatus, UserRole } from '../commo
 import { PaginationDto } from '../common/dto/pagination.dto';
 import type { StoreContext } from '../common/utils/store-context.util';
 import { requireStoreId } from '../common/utils/store-context.util';
+import { DepositsService } from '../deposits/deposits.service';
 
 @Injectable()
 export class CashSessionsService {
   constructor(
     @InjectRepository(CashSession) private repo: Repository<CashSession>,
     @InjectRepository(Sale) private saleRepo: Repository<Sale>,
+    private depositsService: DepositsService,
   ) {}
 
   private scopeStore(ctx: StoreContext): number {
@@ -38,6 +40,7 @@ export class CashSessionsService {
       cashTotal: number;
       cardTotal: number;
       nequiTotal: number;
+      depositRefunds: number;
     },
     role: UserRole,
   ) {
@@ -86,7 +89,7 @@ export class CashSessionsService {
     }
 
     const summary = await this.getSessionSummary(id);
-    const expectedAmount = Number(session.openingAmount) + summary.cashTotal;
+    const expectedAmount = Number(session.openingAmount) + summary.cashTotal - summary.depositRefunds;
     const difference = dto.closingAmount - expectedAmount;
 
     session.closingAmount = dto.closingAmount;
@@ -162,6 +165,7 @@ export class CashSessionsService {
     const nequiTotal = sales
       .filter((s) => s.paymentMethod === PaymentMethod.NEQUI)
       .reduce((s, v) => s + Number(v.total), 0);
+    const depositRefunds = await this.depositsService.refundsForSession(sessionId);
 
     return {
       totalSales,
@@ -170,6 +174,7 @@ export class CashSessionsService {
       cashTotal: Number(cashTotal.toFixed(2)),
       cardTotal: Number(cardTotal.toFixed(2)),
       nequiTotal: Number(nequiTotal.toFixed(2)),
+      depositRefunds,
     };
   }
 }

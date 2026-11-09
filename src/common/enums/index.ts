@@ -55,3 +55,10 @@ export enum OptionGroupKind {
   CONTAINER = 'container',
   ADDON = 'addon',
 }
+
+export enum ContainerDepositStatus {
+  OPEN = 'open',
+  PARTIAL = 'partial',
+  RETURNED = 'returned',
+  VOIDED = 'voided',
+}

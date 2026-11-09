@@ -55,6 +55,10 @@ export class ProductOptionDto {
   @IsNumber()
   @Min(0)
   unitPrice?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isDeposit?: boolean;
 }
 
 export class ProductOptionGroupDto {

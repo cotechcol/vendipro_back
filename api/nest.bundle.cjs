@@ -717,6 +717,91 @@ var require_sale_migration = __commonJS({
   }
 });
 
+// dist/database/deposit-migration.js
+var require_deposit_migration = __commonJS({
+  "dist/database/deposit-migration.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.runDepositMigration = runDepositMigration;
+    async function tableExists(connection, table) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]);
+      return rows.length > 0;
+    }
+    async function columnExists(connection, table, column) {
+      const [rows] = await connection.query(`SELECT 1 FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, column]);
+      return rows.length > 0;
+    }
+    async function runDepositMigration(connection) {
+      if (await tableExists(connection, "product_options")) {
+        if (!await columnExists(connection, "product_options", "is_deposit")) {
+          await connection.query(`
+        ALTER TABLE product_options
+        ADD COLUMN is_deposit TINYINT(1) NOT NULL DEFAULT 0
+        AFTER unit_price
+      `);
+          console.log("[deposit-migration] Columna product_options.is_deposit agregada");
+        }
+      }
+      if (!await tableExists(connection, "container_deposits")) {
+        await connection.query(`
+      CREATE TABLE container_deposits (
+        id INT NOT NULL AUTO_INCREMENT,
+        store_id INT NOT NULL,
+        code VARCHAR(12) NOT NULL,
+        sale_id INT NOT NULL,
+        cash_session_id INT NOT NULL,
+        container_count INT NOT NULL,
+        unit_amount DECIMAL(12,2) NOT NULL,
+        total_amount DECIMAL(12,2) NOT NULL,
+        returned_count INT NOT NULL DEFAULT 0,
+        returned_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+        status ENUM('open','partial','returned','voided') NOT NULL DEFAULT 'open',
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+          ON UPDATE CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (id),
+        UNIQUE KEY UQ_container_deposits_store_code (store_id, code),
+        KEY IDX_container_deposits_store_status (store_id, status),
+        KEY IDX_container_deposits_sale (sale_id),
+        CONSTRAINT FK_container_deposits_store
+          FOREIGN KEY (store_id) REFERENCES stores(id),
+        CONSTRAINT FK_container_deposits_sale
+          FOREIGN KEY (sale_id) REFERENCES sales(id),
+        CONSTRAINT FK_container_deposits_cash
+          FOREIGN KEY (cash_session_id) REFERENCES cash_sessions(id)
+      ) ENGINE=InnoDB
+    `);
+        console.log("[deposit-migration] Tabla container_deposits creada");
+      }
+      if (!await tableExists(connection, "container_deposit_returns")) {
+        await connection.query(`
+      CREATE TABLE container_deposit_returns (
+        id INT NOT NULL AUTO_INCREMENT,
+        deposit_id INT NOT NULL,
+        cash_session_id INT NOT NULL,
+        user_id INT NOT NULL,
+        quantity INT NOT NULL,
+        amount DECIMAL(12,2) NOT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (id),
+        KEY IDX_deposit_returns_deposit (deposit_id),
+        KEY IDX_deposit_returns_cash (cash_session_id),
+        CONSTRAINT FK_deposit_returns_deposit
+          FOREIGN KEY (deposit_id) REFERENCES container_deposits(id) ON DELETE CASCADE,
+        CONSTRAINT FK_deposit_returns_cash
+          FOREIGN KEY (cash_session_id) REFERENCES cash_sessions(id),
+        CONSTRAINT FK_deposit_returns_user
+          FOREIGN KEY (user_id) REFERENCES users(id)
+      ) ENGINE=InnoDB
+    `);
+        console.log("[deposit-migration] Tabla container_deposit_returns creada");
+      }
+    }
+  }
+});
+
 // dist/database/mysql-singleton.js
 var require_mysql_singleton = __commonJS({
   "dist/database/mysql-singleton.js"(exports2) {
@@ -826,8 +911,9 @@ var require_migration_bootstrap = __commonJS({
     var supplier_migration_1 = require_supplier_migration();
     var table_migration_1 = require_table_migration();
     var sale_migration_1 = require_sale_migration();
+    var deposit_migration_1 = require_deposit_migration();
     var mysql_singleton_1 = require_mysql_singleton();
-    exports2.SCHEMA_VERSION = 9;
+    exports2.SCHEMA_VERSION = 10;
     var migrationPromise = null;
     function errorText(err) {
       const seen = /* @__PURE__ */ new Set();
@@ -901,6 +987,7 @@ var require_migration_bootstrap = __commonJS({
       await (0, supplier_migration_1.runSupplierMigration)(connection);
       await (0, table_migration_1.runTableMigration)(connection);
       await (0, sale_migration_1.runSaleMigration)(connection);
+      await (0, deposit_migration_1.runDepositMigration)(connection);
       try {
         await markSchemaCurrent(connection);
       } catch (err) {
@@ -944,7 +1031,7 @@ var require_enums = __commonJS({
   "dist/common/enums/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.OptionGroupKind = exports2.StockUnit = exports2.ProductType = exports2.InventoryMovementType = exports2.SaleStatus = exports2.PaymentMethod = exports2.TableOrderStatus = exports2.CashSessionStatus = exports2.UserRole = void 0;
+    exports2.ContainerDepositStatus = exports2.OptionGroupKind = exports2.StockUnit = exports2.ProductType = exports2.InventoryMovementType = exports2.SaleStatus = exports2.PaymentMethod = exports2.TableOrderStatus = exports2.CashSessionStatus = exports2.UserRole = void 0;
     var UserRole;
     (function(UserRole2) {
       UserRole2["SUPER_ADMIN"] = "super_admin";
@@ -1003,6 +1090,13 @@ var require_enums = __commonJS({
       OptionGroupKind2["CONTAINER"] = "container";
       OptionGroupKind2["ADDON"] = "addon";
     })(OptionGroupKind || (exports2.OptionGroupKind = OptionGroupKind = {}));
+    var ContainerDepositStatus;
+    (function(ContainerDepositStatus2) {
+      ContainerDepositStatus2["OPEN"] = "open";
+      ContainerDepositStatus2["PARTIAL"] = "partial";
+      ContainerDepositStatus2["RETURNED"] = "returned";
+      ContainerDepositStatus2["VOIDED"] = "voided";
+    })(ContainerDepositStatus || (exports2.ContainerDepositStatus = ContainerDepositStatus = {}));
   }
 });
 
@@ -1763,6 +1857,7 @@ var require_product_option_entity = __commonJS({
       unit;
       unitCost;
       unitPrice;
+      isDeposit;
     };
     exports2.ProductOption = ProductOption;
     __decorate([
@@ -1807,6 +1902,10 @@ var require_product_option_entity = __commonJS({
       (0, typeorm_12.Column)({ name: "unit_price", type: "decimal", precision: 12, scale: 2, default: 0 }),
       __metadata("design:type", Number)
     ], ProductOption.prototype, "unitPrice", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "is_deposit", default: false }),
+      __metadata("design:type", Boolean)
+    ], ProductOption.prototype, "isDeposit", void 0);
     exports2.ProductOption = ProductOption = __decorate([
       (0, typeorm_12.Entity)("product_options")
     ], ProductOption);
@@ -5464,7 +5563,8 @@ var require_products_service = __commonJS({
               quantity,
               unit,
               unitCost,
-              unitPrice
+              unitPrice,
+              isDeposit: isAddon ? Boolean(opt.isDeposit) : false
             }));
           }
         }
@@ -22372,6 +22472,7 @@ var require_product_dto = __commonJS({
       unit;
       unitCost;
       unitPrice;
+      isDeposit;
     };
     exports2.ProductOptionDto = ProductOptionDto;
     __decorate([
@@ -22416,6 +22517,11 @@ var require_product_dto = __commonJS({
       (0, class_validator_1.Min)(0),
       __metadata("design:type", Number)
     ], ProductOptionDto.prototype, "unitPrice", void 0);
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_validator_1.IsBoolean)(),
+      __metadata("design:type", Boolean)
+    ], ProductOptionDto.prototype, "isDeposit", void 0);
     var ProductOptionGroupDto = class {
       name;
       kind;
@@ -24601,6 +24707,415 @@ var require_purchases_module = __commonJS({
   }
 });
 
+// dist/deposits/entities/container-deposit-return.entity.js
+var require_container_deposit_return_entity = __commonJS({
+  "dist/deposits/entities/container-deposit-return.entity.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    var __metadata = exports2 && exports2.__metadata || function(k, v) {
+      if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.ContainerDepositReturn = void 0;
+    var typeorm_12 = require("typeorm");
+    var container_deposit_entity_1 = require_container_deposit_entity();
+    var cash_session_entity_1 = require_cash_session_entity();
+    var user_entity_1 = require_user_entity();
+    var ContainerDepositReturn = class ContainerDepositReturn {
+      id;
+      depositId;
+      deposit;
+      cashSessionId;
+      cashSession;
+      userId;
+      user;
+      quantity;
+      amount;
+      createdAt;
+    };
+    exports2.ContainerDepositReturn = ContainerDepositReturn;
+    __decorate([
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
+      __metadata("design:type", Number)
+    ], ContainerDepositReturn.prototype, "id", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "deposit_id" }),
+      __metadata("design:type", Number)
+    ], ContainerDepositReturn.prototype, "depositId", void 0);
+    __decorate([
+      (0, typeorm_12.ManyToOne)(() => container_deposit_entity_1.ContainerDeposit, (deposit) => deposit.returns, { onDelete: "CASCADE" }),
+      (0, typeorm_12.JoinColumn)({ name: "deposit_id" }),
+      __metadata("design:type", container_deposit_entity_1.ContainerDeposit)
+    ], ContainerDepositReturn.prototype, "deposit", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "cash_session_id" }),
+      __metadata("design:type", Number)
+    ], ContainerDepositReturn.prototype, "cashSessionId", void 0);
+    __decorate([
+      (0, typeorm_12.ManyToOne)(() => cash_session_entity_1.CashSession),
+      (0, typeorm_12.JoinColumn)({ name: "cash_session_id" }),
+      __metadata("design:type", cash_session_entity_1.CashSession)
+    ], ContainerDepositReturn.prototype, "cashSession", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "user_id" }),
+      __metadata("design:type", Number)
+    ], ContainerDepositReturn.prototype, "userId", void 0);
+    __decorate([
+      (0, typeorm_12.ManyToOne)(() => user_entity_1.User),
+      (0, typeorm_12.JoinColumn)({ name: "user_id" }),
+      __metadata("design:type", user_entity_1.User)
+    ], ContainerDepositReturn.prototype, "user", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ type: "int" }),
+      __metadata("design:type", Number)
+    ], ContainerDepositReturn.prototype, "quantity", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ type: "decimal", precision: 12, scale: 2 }),
+      __metadata("design:type", Number)
+    ], ContainerDepositReturn.prototype, "amount", void 0);
+    __decorate([
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
+      __metadata("design:type", Date)
+    ], ContainerDepositReturn.prototype, "createdAt", void 0);
+    exports2.ContainerDepositReturn = ContainerDepositReturn = __decorate([
+      (0, typeorm_12.Entity)("container_deposit_returns"),
+      (0, typeorm_12.Index)(["cashSessionId"])
+    ], ContainerDepositReturn);
+  }
+});
+
+// dist/deposits/entities/container-deposit.entity.js
+var require_container_deposit_entity = __commonJS({
+  "dist/deposits/entities/container-deposit.entity.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    var __metadata = exports2 && exports2.__metadata || function(k, v) {
+      if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.ContainerDeposit = void 0;
+    var typeorm_12 = require("typeorm");
+    var enums_1 = require_enums();
+    var store_entity_1 = require_store_entity();
+    var sale_entity_1 = require_sale_entity();
+    var cash_session_entity_1 = require_cash_session_entity();
+    var container_deposit_return_entity_1 = require_container_deposit_return_entity();
+    var ContainerDeposit = class ContainerDeposit {
+      id;
+      storeId;
+      store;
+      code;
+      saleId;
+      sale;
+      cashSessionId;
+      cashSession;
+      containerCount;
+      unitAmount;
+      totalAmount;
+      returnedCount;
+      returnedAmount;
+      status;
+      returns;
+      createdAt;
+      updatedAt;
+    };
+    exports2.ContainerDeposit = ContainerDeposit;
+    __decorate([
+      (0, typeorm_12.PrimaryGeneratedColumn)(),
+      __metadata("design:type", Number)
+    ], ContainerDeposit.prototype, "id", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "store_id" }),
+      __metadata("design:type", Number)
+    ], ContainerDeposit.prototype, "storeId", void 0);
+    __decorate([
+      (0, typeorm_12.ManyToOne)(() => store_entity_1.Store),
+      (0, typeorm_12.JoinColumn)({ name: "store_id" }),
+      __metadata("design:type", store_entity_1.Store)
+    ], ContainerDeposit.prototype, "store", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ length: 12 }),
+      __metadata("design:type", String)
+    ], ContainerDeposit.prototype, "code", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "sale_id" }),
+      __metadata("design:type", Number)
+    ], ContainerDeposit.prototype, "saleId", void 0);
+    __decorate([
+      (0, typeorm_12.ManyToOne)(() => sale_entity_1.Sale),
+      (0, typeorm_12.JoinColumn)({ name: "sale_id" }),
+      __metadata("design:type", sale_entity_1.Sale)
+    ], ContainerDeposit.prototype, "sale", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "cash_session_id" }),
+      __metadata("design:type", Number)
+    ], ContainerDeposit.prototype, "cashSessionId", void 0);
+    __decorate([
+      (0, typeorm_12.ManyToOne)(() => cash_session_entity_1.CashSession),
+      (0, typeorm_12.JoinColumn)({ name: "cash_session_id" }),
+      __metadata("design:type", cash_session_entity_1.CashSession)
+    ], ContainerDeposit.prototype, "cashSession", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "container_count", type: "int" }),
+      __metadata("design:type", Number)
+    ], ContainerDeposit.prototype, "containerCount", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "unit_amount", type: "decimal", precision: 12, scale: 2 }),
+      __metadata("design:type", Number)
+    ], ContainerDeposit.prototype, "unitAmount", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "total_amount", type: "decimal", precision: 12, scale: 2 }),
+      __metadata("design:type", Number)
+    ], ContainerDeposit.prototype, "totalAmount", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "returned_count", type: "int", default: 0 }),
+      __metadata("design:type", Number)
+    ], ContainerDeposit.prototype, "returnedCount", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ name: "returned_amount", type: "decimal", precision: 12, scale: 2, default: 0 }),
+      __metadata("design:type", Number)
+    ], ContainerDeposit.prototype, "returnedAmount", void 0);
+    __decorate([
+      (0, typeorm_12.Column)({ type: "enum", enum: enums_1.ContainerDepositStatus, default: enums_1.ContainerDepositStatus.OPEN }),
+      __metadata("design:type", String)
+    ], ContainerDeposit.prototype, "status", void 0);
+    __decorate([
+      (0, typeorm_12.OneToMany)(() => container_deposit_return_entity_1.ContainerDepositReturn, (row) => row.deposit),
+      __metadata("design:type", Array)
+    ], ContainerDeposit.prototype, "returns", void 0);
+    __decorate([
+      (0, typeorm_12.CreateDateColumn)({ name: "created_at" }),
+      __metadata("design:type", Date)
+    ], ContainerDeposit.prototype, "createdAt", void 0);
+    __decorate([
+      (0, typeorm_12.UpdateDateColumn)({ name: "updated_at" }),
+      __metadata("design:type", Date)
+    ], ContainerDeposit.prototype, "updatedAt", void 0);
+    exports2.ContainerDeposit = ContainerDeposit = __decorate([
+      (0, typeorm_12.Entity)("container_deposits"),
+      (0, typeorm_12.Unique)(["storeId", "code"]),
+      (0, typeorm_12.Index)(["storeId", "status"])
+    ], ContainerDeposit);
+  }
+});
+
+// dist/deposits/deposits.service.js
+var require_deposits_service = __commonJS({
+  "dist/deposits/deposits.service.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    var __metadata = exports2 && exports2.__metadata || function(k, v) {
+      if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+    };
+    var __param = exports2 && exports2.__param || function(paramIndex, decorator) {
+      return function(target, key) {
+        decorator(target, key, paramIndex);
+      };
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.DepositsService = void 0;
+    exports2.serializeDeposit = serializeDeposit;
+    var common_1 = require("@nestjs/common");
+    var typeorm_12 = require("@nestjs/typeorm");
+    var typeorm_2 = require("typeorm");
+    var container_deposit_entity_1 = require_container_deposit_entity();
+    var container_deposit_return_entity_1 = require_container_deposit_return_entity();
+    var cash_session_entity_1 = require_cash_session_entity();
+    var enums_1 = require_enums();
+    var store_context_util_1 = require_store_context_util();
+    var CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    function serializeDeposit(deposit) {
+      const pendingCount = Number(deposit.containerCount) - Number(deposit.returnedCount);
+      const pendingAmount = Number((Number(deposit.totalAmount) - Number(deposit.returnedAmount)).toFixed(2));
+      return {
+        id: deposit.id,
+        code: deposit.code,
+        saleId: deposit.saleId,
+        containerCount: Number(deposit.containerCount),
+        unitAmount: Number(deposit.unitAmount),
+        totalAmount: Number(deposit.totalAmount),
+        returnedCount: Number(deposit.returnedCount),
+        returnedAmount: Number(deposit.returnedAmount),
+        pendingCount,
+        pendingAmount,
+        status: deposit.status,
+        createdAt: deposit.createdAt
+      };
+    }
+    var DepositsService = class DepositsService {
+      repo;
+      returnRepo;
+      dataSource;
+      constructor(repo, returnRepo, dataSource) {
+        this.repo = repo;
+        this.returnRepo = returnRepo;
+        this.dataSource = dataSource;
+      }
+      scopeStore(ctx) {
+        return (0, store_context_util_1.requireStoreId)(ctx);
+      }
+      async findBySale(saleId, storeId) {
+        return this.repo.findOne({ where: { saleId, storeId } });
+      }
+      async lookup(code, ctx) {
+        const storeId = this.scopeStore(ctx);
+        const normalized = (code ?? "").trim().toUpperCase();
+        if (normalized.length < 3) {
+          throw new common_1.BadRequestException("Ingresa el c\xF3digo del dep\xF3sito");
+        }
+        const deposit = await this.repo.findOne({ where: { storeId, code: normalized } });
+        if (!deposit || deposit.status === enums_1.ContainerDepositStatus.VOIDED) {
+          throw new common_1.NotFoundException("No hay un dep\xF3sito con ese c\xF3digo");
+        }
+        return serializeDeposit(deposit);
+      }
+      async refund(code, quantity, userId, ctx) {
+        const storeId = this.scopeStore(ctx);
+        const normalized = code.trim().toUpperCase();
+        return this.dataSource.transaction(async (manager) => {
+          const session = await manager.findOne(cash_session_entity_1.CashSession, {
+            where: { storeId, userId, status: enums_1.CashSessionStatus.OPEN }
+          });
+          if (!session) {
+            throw new common_1.BadRequestException("Debes abrir la caja para devolver un dep\xF3sito");
+          }
+          const deposit = await manager.findOne(container_deposit_entity_1.ContainerDeposit, {
+            where: { storeId, code: normalized },
+            lock: { mode: "pessimistic_write" }
+          });
+          if (!deposit || deposit.status === enums_1.ContainerDepositStatus.VOIDED) {
+            throw new common_1.NotFoundException("No hay un dep\xF3sito con ese c\xF3digo");
+          }
+          if (deposit.status === enums_1.ContainerDepositStatus.RETURNED) {
+            throw new common_1.BadRequestException("Este dep\xF3sito ya fue devuelto por completo");
+          }
+          const pendingCount = Number(deposit.containerCount) - Number(deposit.returnedCount);
+          const qty = quantity ?? pendingCount;
+          if (qty <= 0 || qty > pendingCount) {
+            throw new common_1.BadRequestException(`Puedes devolver entre 1 y ${pendingCount} envase(s)`);
+          }
+          const unit = Number(deposit.unitAmount);
+          const amount = Number((unit * qty).toFixed(2));
+          const returnedCount = Number(deposit.returnedCount) + qty;
+          const returnedAmount = Number((Number(deposit.returnedAmount) + amount).toFixed(2));
+          const status = returnedCount >= Number(deposit.containerCount) ? enums_1.ContainerDepositStatus.RETURNED : enums_1.ContainerDepositStatus.PARTIAL;
+          await manager.save(manager.create(container_deposit_return_entity_1.ContainerDepositReturn, {
+            depositId: deposit.id,
+            cashSessionId: session.id,
+            userId,
+            quantity: qty,
+            amount
+          }));
+          deposit.returnedCount = returnedCount;
+          deposit.returnedAmount = returnedAmount;
+          deposit.status = status;
+          await manager.save(deposit);
+          return serializeDeposit(deposit);
+        });
+      }
+      async refundsForSession(cashSessionId) {
+        const row = await this.returnRepo.createQueryBuilder("r").select("COALESCE(SUM(r.amount), 0)", "total").where("r.cashSessionId = :cashSessionId", { cashSessionId }).getRawOne();
+        return Number(Number(row?.total ?? 0).toFixed(2));
+      }
+      static depositTotalsFromSale(dto, products) {
+        let containerCount = 0;
+        let totalAmount = 0;
+        for (const item of dto.items) {
+          const product = products.find((p) => p.id === item.productId);
+          if (!product || !item.selectedOptionIds?.length)
+            continue;
+          let perItem = 0;
+          let hasDeposit = false;
+          for (const group of product.optionGroups ?? []) {
+            if (group.kind !== enums_1.OptionGroupKind.ADDON)
+              continue;
+            for (const option of group.options ?? []) {
+              if (item.selectedOptionIds.includes(option.id) && option.isDeposit) {
+                hasDeposit = true;
+                perItem += Number(option.unitPrice ?? 0);
+              }
+            }
+          }
+          if (hasDeposit && perItem > 0) {
+            containerCount += item.quantity;
+            totalAmount += perItem * item.quantity;
+          }
+        }
+        if (containerCount <= 0 || totalAmount <= 0)
+          return null;
+        return {
+          containerCount,
+          totalAmount: Number(totalAmount.toFixed(2)),
+          unitAmount: Number((totalAmount / containerCount).toFixed(2))
+        };
+      }
+      async createForSale(manager, sale, totals) {
+        const code = await this.nextCode(manager, sale.storeId);
+        return manager.save(manager.create(container_deposit_entity_1.ContainerDeposit, {
+          storeId: sale.storeId,
+          code,
+          saleId: sale.id,
+          cashSessionId: sale.cashSessionId,
+          containerCount: totals.containerCount,
+          unitAmount: totals.unitAmount,
+          totalAmount: totals.totalAmount,
+          returnedCount: 0,
+          returnedAmount: 0,
+          status: enums_1.ContainerDepositStatus.OPEN
+        }));
+      }
+      async voidForSale(manager, saleId, storeId) {
+        const deposit = await manager.findOne(container_deposit_entity_1.ContainerDeposit, { where: { saleId, storeId } });
+        if (!deposit)
+          return;
+        if (Number(deposit.returnedCount) > 0) {
+          throw new common_1.BadRequestException("No se puede anular: ya se devolvi\xF3 parte del dep\xF3sito de envases");
+        }
+        deposit.status = enums_1.ContainerDepositStatus.VOIDED;
+        await manager.save(deposit);
+      }
+      async nextCode(manager, storeId) {
+        for (let i = 0; i < 12; i++) {
+          let code = "";
+          for (let n = 0; n < 6; n++) {
+            code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+          }
+          const exists = await manager.findOne(container_deposit_entity_1.ContainerDeposit, { where: { storeId, code } });
+          if (!exists)
+            return code;
+        }
+        throw new common_1.BadRequestException("No se pudo generar un c\xF3digo de dep\xF3sito");
+      }
+    };
+    exports2.DepositsService = DepositsService;
+    exports2.DepositsService = DepositsService = __decorate([
+      (0, common_1.Injectable)(),
+      __param(0, (0, typeorm_12.InjectRepository)(container_deposit_entity_1.ContainerDeposit)),
+      __param(1, (0, typeorm_12.InjectRepository)(container_deposit_return_entity_1.ContainerDepositReturn)),
+      __metadata("design:paramtypes", [
+        typeorm_2.Repository,
+        typeorm_2.Repository,
+        typeorm_2.DataSource
+      ])
+    ], DepositsService);
+  }
+});
+
 // dist/cash-sessions/cash-sessions.service.js
 var require_cash_sessions_service = __commonJS({
   "dist/cash-sessions/cash-sessions.service.js"(exports2) {
@@ -24628,12 +25143,15 @@ var require_cash_sessions_service = __commonJS({
     var sale_entity_1 = require_sale_entity();
     var enums_1 = require_enums();
     var store_context_util_1 = require_store_context_util();
+    var deposits_service_1 = require_deposits_service();
     var CashSessionsService = class CashSessionsService {
       repo;
       saleRepo;
-      constructor(repo, saleRepo) {
+      depositsService;
+      constructor(repo, saleRepo, depositsService) {
         this.repo = repo;
         this.saleRepo = saleRepo;
+        this.depositsService = depositsService;
       }
       scopeStore(ctx) {
         return (0, store_context_util_1.requireStoreId)(ctx);
@@ -24690,7 +25208,7 @@ var require_cash_sessions_service = __commonJS({
           throw new common_1.BadRequestException("La caja ya est\xE1 cerrada");
         }
         const summary = await this.getSessionSummary(id);
-        const expectedAmount = Number(session.openingAmount) + summary.cashTotal;
+        const expectedAmount = Number(session.openingAmount) + summary.cashTotal - summary.depositRefunds;
         const difference = dto.closingAmount - expectedAmount;
         session.closingAmount = dto.closingAmount;
         session.expectedAmount = expectedAmount;
@@ -24748,13 +25266,15 @@ var require_cash_sessions_service = __commonJS({
         const cashTotal = sales.filter((s) => [enums_1.PaymentMethod.CASH, enums_1.PaymentMethod.MIXED].includes(s.paymentMethod)).reduce((s, v) => s + Number(v.total), 0);
         const cardTotal = sales.filter((s) => s.paymentMethod === enums_1.PaymentMethod.CARD).reduce((s, v) => s + Number(v.total), 0);
         const nequiTotal = sales.filter((s) => s.paymentMethod === enums_1.PaymentMethod.NEQUI).reduce((s, v) => s + Number(v.total), 0);
+        const depositRefunds = await this.depositsService.refundsForSession(sessionId);
         return {
           totalSales,
           totalRevenue: Number(totalRevenue.toFixed(2)),
           totalProfit: Number(totalProfit.toFixed(2)),
           cashTotal: Number(cashTotal.toFixed(2)),
           cardTotal: Number(cardTotal.toFixed(2)),
-          nequiTotal: Number(nequiTotal.toFixed(2))
+          nequiTotal: Number(nequiTotal.toFixed(2)),
+          depositRefunds
         };
       }
     };
@@ -24765,7 +25285,8 @@ var require_cash_sessions_service = __commonJS({
       __param(1, (0, typeorm_12.InjectRepository)(sale_entity_1.Sale)),
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
-        typeorm_2.Repository
+        typeorm_2.Repository,
+        deposits_service_1.DepositsService
       ])
     ], CashSessionsService);
   }
@@ -24925,6 +25446,147 @@ var require_cash_sessions_controller = __commonJS({
   }
 });
 
+// dist/deposits/dto/deposit.dto.js
+var require_deposit_dto = __commonJS({
+  "dist/deposits/dto/deposit.dto.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    var __metadata = exports2 && exports2.__metadata || function(k, v) {
+      if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.ReturnDepositDto = exports2.LookupDepositDto = void 0;
+    var class_validator_1 = require("class-validator");
+    var class_transformer_1 = require("class-transformer");
+    var LookupDepositDto = class {
+      code;
+    };
+    exports2.LookupDepositDto = LookupDepositDto;
+    __decorate([
+      (0, class_validator_1.IsString)(),
+      (0, class_validator_1.MinLength)(3),
+      __metadata("design:type", String)
+    ], LookupDepositDto.prototype, "code", void 0);
+    var ReturnDepositDto = class {
+      quantity;
+    };
+    exports2.ReturnDepositDto = ReturnDepositDto;
+    __decorate([
+      (0, class_validator_1.IsOptional)(),
+      (0, class_transformer_1.Type)(() => Number),
+      (0, class_validator_1.IsInt)(),
+      (0, class_validator_1.Min)(1),
+      __metadata("design:type", Number)
+    ], ReturnDepositDto.prototype, "quantity", void 0);
+  }
+});
+
+// dist/deposits/deposits.controller.js
+var require_deposits_controller = __commonJS({
+  "dist/deposits/deposits.controller.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    var __metadata = exports2 && exports2.__metadata || function(k, v) {
+      if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+    };
+    var __param = exports2 && exports2.__param || function(paramIndex, decorator) {
+      return function(target, key) {
+        decorator(target, key, paramIndex);
+      };
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.DepositsController = void 0;
+    var common_1 = require("@nestjs/common");
+    var deposits_service_1 = require_deposits_service();
+    var deposit_dto_1 = require_deposit_dto();
+    var jwt_auth_guard_1 = require_jwt_auth_guard();
+    var roles_guard_1 = require_roles_guard();
+    var roles_decorator_1 = require_roles_decorator();
+    var enums_1 = require_enums();
+    var current_user_decorator_1 = require_current_user_decorator();
+    var store_context_decorator_1 = require_store_context_decorator();
+    var DepositsController = class DepositsController {
+      service;
+      constructor(service) {
+        this.service = service;
+      }
+      lookup(code, ctx) {
+        return this.service.lookup(code ?? "", ctx);
+      }
+      refund(code, dto, userId, ctx) {
+        return this.service.refund(code, dto.quantity, userId, ctx);
+      }
+    };
+    exports2.DepositsController = DepositsController;
+    __decorate([
+      (0, common_1.Get)("lookup"),
+      __param(0, (0, common_1.Query)("code")),
+      __param(1, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [String, Object]),
+      __metadata("design:returntype", void 0)
+    ], DepositsController.prototype, "lookup", null);
+    __decorate([
+      (0, common_1.Post)(":code/return"),
+      __param(0, (0, common_1.Param)("code")),
+      __param(1, (0, common_1.Body)()),
+      __param(2, (0, current_user_decorator_1.CurrentUser)("sub")),
+      __param(3, (0, store_context_decorator_1.StoreCtx)()),
+      __metadata("design:type", Function),
+      __metadata("design:paramtypes", [String, deposit_dto_1.ReturnDepositDto, Number, Object]),
+      __metadata("design:returntype", void 0)
+    ], DepositsController.prototype, "refund", null);
+    exports2.DepositsController = DepositsController = __decorate([
+      (0, common_1.Controller)("deposits"),
+      (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+      (0, roles_decorator_1.Roles)(enums_1.UserRole.SUPER_ADMIN, enums_1.UserRole.ADMIN, enums_1.UserRole.CASHIER),
+      __metadata("design:paramtypes", [deposits_service_1.DepositsService])
+    ], DepositsController);
+  }
+});
+
+// dist/deposits/deposits.module.js
+var require_deposits_module = __commonJS({
+  "dist/deposits/deposits.module.js"(exports2) {
+    "use strict";
+    var __decorate = exports2 && exports2.__decorate || function(decorators, target, key, desc) {
+      var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+      if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+      else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+      return c > 3 && r && Object.defineProperty(target, key, r), r;
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.DepositsModule = void 0;
+    var common_1 = require("@nestjs/common");
+    var typeorm_12 = require("@nestjs/typeorm");
+    var container_deposit_entity_1 = require_container_deposit_entity();
+    var container_deposit_return_entity_1 = require_container_deposit_return_entity();
+    var deposits_service_1 = require_deposits_service();
+    var deposits_controller_1 = require_deposits_controller();
+    var DepositsModule = class DepositsModule {
+    };
+    exports2.DepositsModule = DepositsModule;
+    exports2.DepositsModule = DepositsModule = __decorate([
+      (0, common_1.Module)({
+        imports: [typeorm_12.TypeOrmModule.forFeature([container_deposit_entity_1.ContainerDeposit, container_deposit_return_entity_1.ContainerDepositReturn])],
+        controllers: [deposits_controller_1.DepositsController],
+        providers: [deposits_service_1.DepositsService],
+        exports: [deposits_service_1.DepositsService]
+      })
+    ], DepositsModule);
+  }
+});
+
 // dist/cash-sessions/cash-sessions.module.js
 var require_cash_sessions_module = __commonJS({
   "dist/cash-sessions/cash-sessions.module.js"(exports2) {
@@ -24943,12 +25605,13 @@ var require_cash_sessions_module = __commonJS({
     var sale_entity_1 = require_sale_entity();
     var cash_sessions_service_1 = require_cash_sessions_service();
     var cash_sessions_controller_1 = require_cash_sessions_controller();
+    var deposits_module_1 = require_deposits_module();
     var CashSessionsModule = class CashSessionsModule {
     };
     exports2.CashSessionsModule = CashSessionsModule;
     exports2.CashSessionsModule = CashSessionsModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_12.TypeOrmModule.forFeature([cash_session_entity_1.CashSession, sale_entity_1.Sale])],
+        imports: [typeorm_12.TypeOrmModule.forFeature([cash_session_entity_1.CashSession, sale_entity_1.Sale]), deposits_module_1.DepositsModule],
         controllers: [cash_sessions_controller_1.CashSessionsController],
         providers: [cash_sessions_service_1.CashSessionsService],
         exports: [cash_sessions_service_1.CashSessionsService]
@@ -25048,13 +25711,16 @@ var require_sales_service = __commonJS({
     var store_context_util_1 = require_store_context_util();
     var date_util_1 = require_date_util();
     var product_stock_util_1 = require_product_stock_util();
+    var deposits_service_1 = require_deposits_service();
     var SalesService = class SalesService {
       saleRepo;
       settingsService;
+      depositsService;
       dataSource;
-      constructor(saleRepo, settingsService, dataSource) {
+      constructor(saleRepo, settingsService, depositsService, dataSource) {
         this.saleRepo = saleRepo;
         this.settingsService = settingsService;
+        this.depositsService = depositsService;
         this.dataSource = dataSource;
       }
       scopeStore(ctx) {
@@ -25092,7 +25758,12 @@ var require_sales_service = __commonJS({
       async getTicket(id, ctx) {
         const sale = await this.findOne(id, ctx);
         const settings = await this.settingsService.get(sale.storeId);
-        return { sale, settings };
+        const deposit = await this.depositsService.findBySale(sale.id, sale.storeId);
+        const containerDeposit = deposit && deposit.status !== enums_1.ContainerDepositStatus.VOIDED ? (0, deposits_service_1.serializeDeposit)(deposit) : null;
+        return {
+          sale: { ...sale, containerDeposit },
+          settings
+        };
       }
       async create(dto, userId, ctx) {
         const storeId = this.scopeStore(ctx);
@@ -25113,6 +25784,7 @@ var require_sales_service = __commonJS({
           throw new common_1.BadRequestException("Debes abrir la caja antes de realizar ventas");
         }
         const saleItems = [];
+        const loadedProducts = [];
         let totalWithTax = 0;
         let profit = 0;
         for (const item of dto.items) {
@@ -25130,6 +25802,7 @@ var require_sales_service = __commonJS({
           if (!product || !product.active) {
             throw new common_1.NotFoundException(`Producto ${item.productId} no encontrado`);
           }
+          loadedProducts.push(product);
           const soldAsUnit = Boolean(item.soldAsUnit);
           const deductions = await (0, product_stock_util_1.planStockDeductions)(manager, product, item.quantity, storeId, item.selectedOptionIds, true, soldAsUnit);
           const reference = `SALE-${Date.now()}-${product.id}`;
@@ -25204,7 +25877,13 @@ var require_sales_service = __commonJS({
           cashSessionId: cashSession.id,
           items: saleItems
         });
-        return manager.save(sale);
+        const saved = await manager.save(sale);
+        const depositTotals = deposits_service_1.DepositsService.depositTotalsFromSale(dto, loadedProducts);
+        if (depositTotals) {
+          const deposit = await this.depositsService.createForSale(manager, saved, depositTotals);
+          return { ...saved, containerDeposit: (0, deposits_service_1.serializeDeposit)(deposit) };
+        }
+        return saved;
       }
       async reverse(id, dto, userId, ctx) {
         const storeId = this.scopeStore(ctx);
@@ -25222,6 +25901,7 @@ var require_sales_service = __commonJS({
             throw new common_1.ConflictException("Esta venta ya est\xE1 anulada");
           }
           const reason = dto.reason?.trim() || "Anulaci\xF3n de venta";
+          await this.depositsService.voidForSale(manager, sale.id, storeId);
           const reference = `REVERSAL-SALE-${sale.id}`;
           for (const item of sale.items ?? []) {
             const product = await manager.findOne(product_entity_1.Product, {
@@ -25262,6 +25942,7 @@ var require_sales_service = __commonJS({
       __metadata("design:paramtypes", [
         typeorm_2.Repository,
         settings_service_1.SettingsService,
+        deposits_service_1.DepositsService,
         typeorm_2.DataSource
       ])
     ], SalesService);
@@ -25491,12 +26172,13 @@ var require_sales_module = __commonJS({
     var sales_service_1 = require_sales_service();
     var sales_controller_1 = require_sales_controller();
     var settings_module_1 = require_settings_module();
+    var deposits_module_1 = require_deposits_module();
     var SalesModule = class SalesModule {
     };
     exports2.SalesModule = SalesModule;
     exports2.SalesModule = SalesModule = __decorate([
       (0, common_1.Module)({
-        imports: [typeorm_12.TypeOrmModule.forFeature([sale_entity_1.Sale, sale_item_entity_1.SaleItem]), settings_module_1.SettingsModule],
+        imports: [typeorm_12.TypeOrmModule.forFeature([sale_entity_1.Sale, sale_item_entity_1.SaleItem]), settings_module_1.SettingsModule, deposits_module_1.DepositsModule],
         controllers: [sales_controller_1.SalesController],
         providers: [sales_service_1.SalesService],
         exports: [sales_service_1.SalesService]
@@ -28378,6 +29060,7 @@ var require_app_module = __commonJS({
     var tables_module_1 = require_tables_module();
     var reports_module_1 = require_reports_module();
     var seed_module_1 = require_seed_module();
+    var deposits_module_1 = require_deposits_module();
     var storage_module_1 = require_storage_module();
     var store_entity_1 = require_store_entity();
     var user_entity_1 = require_user_entity();
@@ -28398,6 +29081,8 @@ var require_app_module = __commonJS({
     var restaurant_table_entity_1 = require_restaurant_table_entity();
     var table_order_entity_1 = require_table_order_entity();
     var table_order_item_entity_1 = require_table_order_item_entity();
+    var container_deposit_entity_1 = require_container_deposit_entity();
+    var container_deposit_return_entity_1 = require_container_deposit_return_entity();
     var AppModule = class AppModule {
     };
     exports2.AppModule = AppModule;
@@ -28440,7 +29125,9 @@ var require_app_module = __commonJS({
                   sale_item_entity_1.SaleItem,
                   restaurant_table_entity_1.RestaurantTable,
                   table_order_entity_1.TableOrder,
-                  table_order_item_entity_1.TableOrderItem
+                  table_order_item_entity_1.TableOrderItem,
+                  container_deposit_entity_1.ContainerDeposit,
+                  container_deposit_return_entity_1.ContainerDepositReturn
                 ],
                 synchronize: false,
                 timezone: "Z",
@@ -28473,6 +29160,7 @@ var require_app_module = __commonJS({
           purchases_module_1.PurchasesModule,
           cash_sessions_module_1.CashSessionsModule,
           sales_module_1.SalesModule,
+          deposits_module_1.DepositsModule,
           tables_module_1.TablesModule,
           reports_module_1.ReportsModule,
           seed_module_1.SeedModule

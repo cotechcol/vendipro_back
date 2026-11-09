@@ -6,7 +6,7 @@ import { SaleItem } from './entities/sale-item.entity';
 import { Product } from '../products/entities/product.entity';
 import { CashSession } from '../cash-sessions/entities/cash-session.entity';
 import { CreateSaleDto, ReverseSaleDto } from './dto/sale.dto';
-import { CashSessionStatus, PaymentMethod, ProductType, SaleStatus } from '../common/enums';
+import { CashSessionStatus, ContainerDepositStatus, PaymentMethod, ProductType, SaleStatus } from '../common/enums';
 import { calculateTaxFromIncludedPrice, generateTicketNumber } from '../common/utils/tax.util';
 import { SettingsService } from '../settings/settings.service';
 import { Setting } from '../settings/entities/setting.entity';
@@ -21,12 +21,14 @@ import {
   calculateSaleUnitCost,
   calculateSaleUnitPrice,
 } from '../products/product-stock.util';
+import { DepositsService, serializeDeposit } from '../deposits/deposits.service';
 
 @Injectable()
 export class SalesService {
   constructor(
     @InjectRepository(Sale) private saleRepo: Repository<Sale>,
     private settingsService: SettingsService,
+    private depositsService: DepositsService,
     private dataSource: DataSource,
   ) {}
 
@@ -67,7 +69,14 @@ export class SalesService {
   async getTicket(id: number, ctx: StoreContext) {
     const sale = await this.findOne(id, ctx);
     const settings = await this.settingsService.get(sale.storeId);
-    return { sale, settings };
+    const deposit = await this.depositsService.findBySale(sale.id, sale.storeId);
+    const containerDeposit = deposit && deposit.status !== ContainerDepositStatus.VOIDED
+      ? serializeDeposit(deposit)
+      : null;
+    return {
+      sale: { ...sale, containerDeposit },
+      settings,
+    };
   }
 
   async create(dto: CreateSaleDto, userId: number, ctx: StoreContext) {
@@ -105,6 +114,7 @@ export class SalesService {
     }
 
     const saleItems: SaleItem[] = [];
+    const loadedProducts: Product[] = [];
     let totalWithTax = 0;
     let profit = 0;
 
@@ -123,6 +133,7 @@ export class SalesService {
       if (!product || !product.active) {
         throw new NotFoundException(`Producto ${item.productId} no encontrado`);
       }
+      loadedProducts.push(product);
 
       const soldAsUnit = Boolean(item.soldAsUnit);
       const deductions = await planStockDeductions(
@@ -225,7 +236,13 @@ export class SalesService {
       items: saleItems,
     });
 
-    return manager.save(sale);
+    const saved = await manager.save(sale);
+    const depositTotals = DepositsService.depositTotalsFromSale(dto, loadedProducts);
+    if (depositTotals) {
+      const deposit = await this.depositsService.createForSale(manager, saved, depositTotals);
+      return { ...saved, containerDeposit: serializeDeposit(deposit) };
+    }
+    return saved;
   }
 
   async reverse(id: number, dto: ReverseSaleDto, userId: number, ctx: StoreContext) {
@@ -245,6 +262,7 @@ export class SalesService {
       }
 
       const reason = dto.reason?.trim() || 'Anulación de venta';
+      await this.depositsService.voidForSale(manager, sale.id, storeId);
       const reference = `REVERSAL-SALE-${sale.id}`;
 
       for (const item of sale.items ?? []) {

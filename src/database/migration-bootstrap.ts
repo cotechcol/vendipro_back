@@ -5,13 +5,14 @@ import { runProductMigration } from './product-migration';
 import { runSupplierMigration } from './supplier-migration';
 import { runTableMigration } from './table-migration';
 import { runSaleMigration } from './sale-migration';
+import { runDepositMigration } from './deposit-migration';
 import { getMysqlSingleton, releaseMysqlSingleton } from './mysql-singleton';
 
 /**
  * Subir este número cuando se agregue una migración nueva.
  * Evita re-escanear information_schema en cada cold start de Vercel.
  */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 let migrationPromise: Promise<void> | null = null;
 
@@ -125,6 +126,7 @@ async function applyMigrations(connection: mysql.Connection): Promise<void> {
   await runSupplierMigration(connection);
   await runTableMigration(connection);
   await runSaleMigration(connection);
+  await runDepositMigration(connection);
 
   try {
     await markSchemaCurrent(connection);

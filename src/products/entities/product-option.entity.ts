@@ -44,4 +44,8 @@ export class ProductOption {
   /** Precio extra al cliente (solo adicionales en productos compuestos) */
   @Column({ name: 'unit_price', type: 'decimal', precision: 12, scale: 2, default: 0 })
   unitPrice: number;
+
+  /** Si es un depósito de envase (no es producto de inventario) */
+  @Column({ name: 'is_deposit', default: false })
+  isDeposit: boolean;
 }

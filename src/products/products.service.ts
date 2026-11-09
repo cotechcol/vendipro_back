@@ -657,6 +657,7 @@ export class ProductsService {
           unit,
           unitCost,
           unitPrice,
+          isDeposit: isAddon ? Boolean(opt.isDeposit) : false,
         }));
       }
     }
